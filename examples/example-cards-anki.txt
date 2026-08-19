@@ -1,0 +1,9 @@
+#separator:tab
+#html:true
+#tags:imported
+#columns:Front	Back	Tags
+das Fernweh	<div>a longing for far-off places</div><div>the opposite of homesickness</div>	noun feeling
+der Ohrwurm	an <b>earworm</b> &mdash; a tune stuck in your head	noun music
+die Schadenfreude	pleasure at another&#39;s misfortune	noun feeling
+verschlimmbessern	to make something worse by trying to improve it	verb
+der Kummerspeck	<div>&quot;grief bacon&quot;</div><div>weight gained from emotional eating</div>	noun food
