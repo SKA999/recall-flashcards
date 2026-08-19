@@ -3,6 +3,9 @@
 A spaced-repetition flashcard app, Anki-shaped but built from scratch. This is
 the **web app**; the core is deliberately portable so a phone app can reuse it.
 
+**Live: https://ska999.github.io/recall-flashcards/** — deployed from `main` by
+GitHub Actions on every push, gated on the test suite.
+
 ```bash
 npm install
 npm run dev      # http://localhost:5180
@@ -125,13 +128,10 @@ manifest with regular and maskable icons, and a service worker that keeps it
 working offline. Navigations are network-first (so a deploy is picked up at
 once) and fall back to the cached shell; content-hashed assets are cache-first.
 
-**Caveat on verification.** The service worker's caching logic is covered by
-tests in `src/__tests__/sw.test.ts` — install, activate, cache-first assets,
-network-first navigation, offline fallback. But *registration* itself was never
-exercised in a real browser: the preview browser available here refuses to
-register service workers at all. Load `npm run preview` in Chrome or Safari,
-confirm the worker registers, then tick offline mode in devtools before
-trusting it.
+Verified on the live site: the worker registers, activates, scopes itself to
+`/recall-flashcards/`, and caches the shell at that subpath. Its caching logic
+is separately covered by tests in `src/__tests__/sw.test.ts` — install,
+activate, cache-first assets, network-first navigation, offline fallback.
 
 For a native app:
 
