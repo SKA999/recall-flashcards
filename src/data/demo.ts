@@ -3,6 +3,7 @@
 
 import { newId } from '../core/ids'
 import { blankCard } from '../core/notes'
+import { BASIC_ID } from '../core/notetypes'
 import { DEFAULT_CONFIG, MS_DAY } from '../core/scheduler'
 import { Rating } from '../core/types'
 import type { Card, Deck, Note, ReviewLog } from '../core/types'
@@ -57,9 +58,8 @@ export async function seedDemo(store: Store, now = Date.now()): Promise<void> {
     const note: Note = {
       id: newId(),
       deckId: deck.id,
-      kind: 'basic',
-      front,
-      back,
+      notetypeId: BASIC_ID,
+      fields: [front, back],
       tags: ['noun'],
       created,
       modified: created,

@@ -3,18 +3,17 @@ import type { Go } from '../App'
 import { htmlToText, looksLikeHeader, parseDelimited } from '../import/csv'
 import type { ParsedDelimited } from '../import/csv'
 import { plainText } from '../core/notes'
-import type { NoteKind } from '../core/types'
 import { useApp } from '../data/store'
 
-/** What each column of the file becomes. */
-type Role = 'front' | 'back' | 'tags' | 'ignore'
-
-const ROLE_LABELS: Record<Role, string> = {
-  front: 'Front',
-  back: 'Back',
-  tags: 'Tags',
-  ignore: 'Ignore',
-}
+/**
+ * What each column becomes: a field of the chosen note type (`f0`, `f1`, …),
+ * the note's tags, or nothing.
+ */
+type Role = string
+const IGNORE = 'ignore'
+const TAGS = 'tags'
+const fieldRole = (index: number) => `f${index}`
+const roleFieldIndex = (role: Role) => (role.startsWith('f') ? Number(role.slice(1)) : -1)
 
 const DELIMITERS: { value: string; label: string }[] = [
   { value: ',', label: 'Comma' },
@@ -36,14 +35,14 @@ interface Report {
 }
 
 export function CsvImport({ go }: { go: Go }) {
-  const { decks, notes, createDeck, addNotes } = useApp()
+  const { decks, notes, notetypes, notetype, createDeck, addNotes } = useApp()
   const fileRef = useRef<HTMLInputElement>(null)
 
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [delimiter, setDelimiter] = useState<string | undefined>(undefined)
   const [hasHeader, setHasHeader] = useState(true)
   const [roles, setRoles] = useState<Role[]>([])
-  const [kind, setKind] = useState<NoteKind>('basic')
+  const [notetypeId, setNotetypeId] = useState('basic')
   const [target, setTarget] = useState<string>('new')
   const [newDeckName, setNewDeckName] = useState('')
   const [stripHtml, setStripHtml] = useState(false)
@@ -87,12 +86,14 @@ export function CsvImport({ go }: { go: Go }) {
     const tagsIndex = first.meta.tagsColumn
       ? first.meta.tagsColumn - 1
       : names.findIndex((n) => n.toLowerCase().trim() === 'tags')
+    // Columns line up with the note type's fields in order; a column called
+    // "tags" carries tags instead.
+    const fieldCount = notetype(notetypeId).fields.length
+    let nextField = 0
     setRoles(
       Array.from({ length: width }, (_, i): Role => {
-        if (i === tagsIndex) return 'tags'
-        if (i === 0) return 'front'
-        if (i === 1) return 'back'
-        return 'ignore'
+        if (i === tagsIndex) return TAGS
+        return nextField < fieldCount ? fieldRole(nextField++) : IGNORE
       }),
     )
   }
@@ -100,10 +101,13 @@ export function CsvImport({ go }: { go: Go }) {
   const setRole = (index: number, role: Role) =>
     setRoles((current) => current.map((r, i) => (i === index ? role : r)))
 
-  const frontIndex = roles.indexOf('front')
-  const backIndex = roles.indexOf('back')
-  const tagIndexes = roles.flatMap((r, i) => (r === 'tags' ? [i] : []))
-  const ready = frontIndex >= 0 && backIndex >= 0 && dataRows.length > 0
+  const type = notetype(notetypeId)
+  /** For each field of the note type, which column supplies it. */
+  const columnForField = type.fields.map((_, fieldIndex) =>
+    roles.findIndex((r) => roleFieldIndex(r) === fieldIndex),
+  )
+  const tagIndexes = roles.flatMap((r, i) => (r === TAGS ? [i] : []))
+  const ready = columnForField.some((c) => c >= 0) && dataRows.length > 0
   const targetName = target === 'new' ? newDeckName.trim() : decks.find((d) => d.id === target)?.name
 
   const clean = (value: string | undefined) => {
@@ -125,7 +129,9 @@ export function CsvImport({ go }: { go: Go }) {
       }
 
       const existing = new Set(
-        notes.filter((n) => n.deckId === deckId).map((n) => plainText(n.front).toLowerCase()),
+        notes
+          .filter((n) => n.deckId === deckId)
+          .map((n) => plainText(n.fields[0] ?? '').toLowerCase()),
       )
       const fileTags = parsed?.meta.tags ?? []
       const inputs = []
@@ -133,13 +139,12 @@ export function CsvImport({ go }: { go: Go }) {
       let skippedEmpty = 0
 
       for (const row of dataRows) {
-        const front = clean(row[frontIndex])
-        const back = clean(row[backIndex])
-        if (!front && !back) {
+        const fields = columnForField.map((column) => (column >= 0 ? clean(row[column]) : ''))
+        if (fields.every((f) => f === '')) {
           skippedEmpty++
           continue
         }
-        const key = front.toLowerCase()
+        const key = fields[0].toLowerCase()
         if (skipDuplicates && key && existing.has(key)) {
           skippedDuplicate++
           continue
@@ -148,9 +153,8 @@ export function CsvImport({ go }: { go: Go }) {
         const rowTags = tagIndexes.flatMap((i) => (row[i] ?? '').split(/[\s,]+/)).filter(Boolean)
         inputs.push({
           deckId,
-          kind,
-          front,
-          back,
+          notetypeId,
+          fields,
           tags: [...new Set([...fileTags, ...rowTags])],
         })
       }
@@ -278,12 +282,14 @@ export function CsvImport({ go }: { go: Go }) {
                   <tr>
                     {Array.from({ length: columnCount }, (_, i) => (
                       <th key={i}>
-                        <select value={roles[i] ?? 'ignore'} onChange={(e) => setRole(i, e.target.value as Role)}>
-                          {(Object.keys(ROLE_LABELS) as Role[]).map((role) => (
-                            <option key={role} value={role}>
-                              {ROLE_LABELS[role]}
+                        <select value={roles[i] ?? IGNORE} onChange={(e) => setRole(i, e.target.value)}>
+                          {type.fields.map((name, fieldIndex) => (
+                            <option key={fieldIndex} value={fieldRole(fieldIndex)}>
+                              {name}
                             </option>
                           ))}
+                          <option value={TAGS}>Tags</option>
+                          <option value={IGNORE}>Ignore</option>
                         </select>
                         {headerRow && <div className="tiny muted">{headerRow[i]}</div>}
                       </th>
@@ -294,7 +300,7 @@ export function CsvImport({ go }: { go: Go }) {
                   {dataRows.slice(0, 5).map((row, r) => (
                     <tr key={r}>
                       {Array.from({ length: columnCount }, (_, c) => (
-                        <td key={c} className={roles[c] === 'ignore' ? 'muted' : undefined}>
+                        <td key={c} className={roles[c] === IGNORE ? 'muted' : undefined}>
                           {clean(row[c]).slice(0, 60) || '—'}
                         </td>
                       ))}
@@ -332,10 +338,27 @@ export function CsvImport({ go }: { go: Go }) {
                   </label>
                 )}
                 <label className="field grow">
-                  Card type
-                  <select value={kind} onChange={(e) => setKind(e.target.value as NoteKind)}>
-                    <option value="basic">Basic — front → back</option>
-                    <option value="reversed">Basic + reversed — both directions</option>
+                  Note type
+                  <select
+                    value={notetypeId}
+                    onChange={(e) => {
+                      const id = e.target.value
+                      setNotetypeId(id)
+                      // Re-map columns onto the new type's fields, in order.
+                      const count = notetype(id).fields.length
+                      let next = 0
+                      setRoles((current) =>
+                        current.map((r) =>
+                          r === TAGS ? TAGS : next < count ? fieldRole(next++) : IGNORE,
+                        ),
+                      )
+                    }}
+                  >
+                    {notetypes.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.name}
+                      </option>
+                    ))}
                   </select>
                 </label>
               </div>
@@ -374,7 +397,7 @@ export function CsvImport({ go }: { go: Go }) {
                 </button>
                 {!ready && (
                   <span className="tiny muted">
-                    Assign a Front and a Back column to continue.
+                    Map at least one column onto a field to continue.
                   </span>
                 )}
               </div>

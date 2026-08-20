@@ -1,4 +1,13 @@
-import type { Card, DayCounter, Deck, MediaItem, Note, ReviewLog, Tombstone } from './types'
+import type {
+  Card,
+  DayCounter,
+  Deck,
+  MediaItem,
+  Note,
+  Notetype,
+  ReviewLog,
+  Tombstone,
+} from './types'
 
 /**
  * Everything the app needs from persistence. The web app backs this with
@@ -12,6 +21,11 @@ export interface Store {
   listDecks(): Promise<Deck[]>
   putDeck(deck: Deck): Promise<void>
   deleteDeck(deckId: string): Promise<void>
+
+  /** Note types are collection-wide, not per deck. */
+  listNotetypes(): Promise<Notetype[]>
+  putNotetype(notetype: Notetype): Promise<void>
+  deleteNotetype(notetypeId: string): Promise<void>
 
   listNotes(deckId?: string): Promise<Note[]>
   putNote(note: Note): Promise<void>

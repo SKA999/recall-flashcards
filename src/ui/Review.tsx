@@ -18,7 +18,7 @@ const RATINGS: { rating: Rating; label: string; key: string }[] = [
 const STUDY_AHEAD_MS = 20 * 60_000
 
 export function Review({ deckId, go }: { deckId: string; go: Go }) {
-  const { decks, notes, cards, counterFor, answerCard, undoAnswer, canUndo } = useApp()
+  const { decks, notes, cards, counterFor, answerCard, undoAnswer, canUndo, notetype } = useApp()
   const deck = decks.find((d) => d.id === deckId)
 
   const [revealed, setRevealed] = useState(false)
@@ -181,7 +181,7 @@ export function Review({ deckId, go }: { deckId: string; go: Go }) {
     )
   }
 
-  const { question, answer } = faces(note, card.ordinal)
+  const { question, answer } = faces(note, notetype(note.notetypeId), card.ordinal)
   const previews = previewIntervals(card, deck.config)
 
   return (
@@ -200,13 +200,17 @@ export function Review({ deckId, go }: { deckId: string; go: Go }) {
       <div className="review-shell">
         <div className="qa">
           <div className="side">
-            <FieldView text={question} />
+            {question.map((text, i) => (
+              <FieldView key={i} text={text} />
+            ))}
           </div>
           {revealed && (
             <>
               <hr />
               <div className="side answer">
-                <FieldView text={answer} autoPlay />
+                {answer.map((text, i) => (
+                  <FieldView key={i} text={text} autoPlay={i === 0} />
+                ))}
               </div>
             </>
           )}

@@ -13,6 +13,7 @@ import {
 import { newId } from '../core/ids'
 import { reconcileCards } from '../core/notes'
 import { answer as applyAnswer, dayKey, DEFAULT_CONFIG } from '../core/scheduler'
+import { BASIC_ID, BUILTIN_NOTETYPES } from '../core/notetypes'
 import type {
   Card,
   DayCounter,
@@ -20,7 +21,7 @@ import type {
   DeckConfig,
   MediaItem,
   Note,
-  NoteKind,
+  Notetype,
   Rating,
   ReviewLog,
 } from '../core/types'
@@ -29,13 +30,21 @@ import { seedDemo } from './demo'
 
 interface Collection {
   decks: Deck[]
+  notetypes: Notetype[]
   notes: Note[]
   cards: Card[]
   logs: ReviewLog[]
   counters: Record<string, DayCounter>
 }
 
-const empty: Collection = { decks: [], notes: [], cards: [], logs: [], counters: {} }
+const empty: Collection = {
+  decks: [],
+  notetypes: [],
+  notes: [],
+  cards: [],
+  logs: [],
+  counters: {},
+}
 
 /** Enough to put the collection back exactly as it was before one answer. */
 interface UndoEntry {
@@ -51,9 +60,8 @@ const UNDO_DEPTH = 30
 export interface NoteInput {
   id?: string
   deckId: string
-  kind: NoteKind
-  front: string
-  back: string
+  notetypeId: string
+  fields: string[]
   tags: string[]
 }
 
@@ -61,6 +69,9 @@ interface AppApi extends Collection {
   loading: boolean
   /** False when storage is in memory only and will not survive a reload. */
   durable: boolean
+  /** Look up a note type, falling back to Basic if it has gone missing. */
+  notetype(id: string): Notetype
+  saveNotetype(notetype: Notetype): Promise<void>
   createDeck(name: string, description?: string): Promise<Deck>
   updateDeck(deckId: string, patch: Partial<Omit<Deck, 'id'>>): Promise<void>
   updateDeckConfig(deckId: string, patch: Partial<DeckConfig>): Promise<void>
@@ -97,20 +108,45 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (import.meta.env.VITE_DEMO === '1' && (await backend().listDecks()).length === 0) {
         await seedDemo(backend())
       }
-      const [decks, notes, cards, logs] = await Promise.all([
+      const [decks, notetypes, notes, cards, logs] = await Promise.all([
         backend().listDecks(),
+        backend().listNotetypes(),
         backend().listNotes(),
         backend().listCards(),
         backend().listLogs(),
       ])
       if (!alive) return
-      setState({ decks, notes, cards, logs, counters: {} })
+      // The memory backend seeds these, but a store that has lost them would
+      // leave every note unrenderable, so top them up rather than assume.
+      const present = new Set(notetypes.map((t) => t.id))
+      const missing = BUILTIN_NOTETYPES.filter((t) => !present.has(t.id))
+      for (const type of missing) await backend().putNotetype(type)
+      setState({ decks, notetypes: [...notetypes, ...missing], notes, cards, logs, counters: {} })
       setDurable(isDurable())
       setLoading(false)
     })()
     return () => {
       alive = false
     }
+  }, [])
+
+  const notetype = useCallback(
+    (id: string): Notetype =>
+      stateRef.current.notetypes.find((t) => t.id === id) ??
+      stateRef.current.notetypes.find((t) => t.id === BASIC_ID) ??
+      BUILTIN_NOTETYPES[0],
+    [stateRef],
+  )
+
+  const saveNotetype = useCallback(async (type: Notetype) => {
+    const stamped = { ...type, updated: Date.now() }
+    await backend().putNotetype(stamped)
+    setState((s) => ({
+      ...s,
+      notetypes: s.notetypes.some((t) => t.id === stamped.id)
+        ? s.notetypes.map((t) => (t.id === stamped.id ? stamped : t))
+        : [...s.notetypes, stamped],
+    }))
   }, [])
 
   const createDeck = useCallback(async (name: string, description = '') => {
@@ -151,6 +187,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const deleteDeck = useCallback(async (deckId: string) => {
     await backend().deleteDeck(deckId)
     setState((s) => ({
+      ...s,
       decks: s.decks.filter((d) => d.id !== deckId),
       notes: s.notes.filter((n) => n.deckId !== deckId),
       cards: s.cards.filter((c) => c.deckId !== deckId),
@@ -165,15 +202,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     const note: Note = {
       id: input.id ?? newId(),
       deckId: input.deckId,
-      kind: input.kind,
-      front: input.front,
-      back: input.back,
+      notetypeId: input.notetypeId,
+      fields: input.fields,
       tags: input.tags,
       created: now,
       modified: now,
       updated: now,
     }
-    const { create, remove } = reconcileCards(note, existingCards, now)
+    const type =
+      stateRef.current.notetypes.find((t) => t.id === note.notetypeId) ?? BUILTIN_NOTETYPES[0]
+    const { create, remove } = reconcileCards(note, type, existingCards, now)
 
     await backend().putNote(note)
     if (create.length) await backend().putCards(create)
@@ -192,7 +230,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
     })
     return note
-  }, [])
+  }, [stateRef])
 
   const addNotes = useCallback(async (inputs: NoteInput[]) => {
     if (!inputs.length) return 0
@@ -204,9 +242,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       const note: Note = {
         id: newId(),
         deckId: input.deckId,
-        kind: input.kind,
-        front: input.front,
-        back: input.back,
+        notetypeId: input.notetypeId,
+        fields: input.fields,
         tags: input.tags,
         // Nudge each note's timestamp so an import keeps its file order in the
         // browse list rather than collapsing into one instant.
@@ -215,7 +252,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
         updated: now + index,
       }
       notes.push(note)
-      cards.push(...reconcileCards(note, [], now).create)
+      const type =
+        stateRef.current.notetypes.find((t) => t.id === note.notetypeId) ?? BUILTIN_NOTETYPES[0]
+      cards.push(...reconcileCards(note, type, [], now).create)
     })
 
     for (const note of notes) await backend().putNote(note)
@@ -223,7 +262,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     setState((s) => ({ ...s, notes: [...s.notes, ...notes], cards: [...s.cards, ...cards] }))
     return notes.length
-  }, [])
+  }, [stateRef])
 
   const deleteNote = useCallback(async (noteId: string) => {
     const cards = await backend().cardsForNote(noteId)
@@ -395,6 +434,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       ...state,
       loading,
       durable,
+      notetype,
+      saveNotetype,
       createDeck,
       updateDeck,
       updateDeckConfig,
@@ -414,6 +455,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       state,
       loading,
       durable,
+      notetype,
+      saveNotetype,
       undoStack.length,
       createDeck,
       updateDeck,

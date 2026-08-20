@@ -2,22 +2,35 @@
 // so the whole persistence layer is one readable file.
 
 import type { Store } from '../core/storage'
+import { BUILTIN_NOTETYPES } from '../core/notetypes'
 import type {
   Card,
   DayCounter,
   Deck,
   MediaItem,
   Note,
+  Notetype,
   ReviewLog,
   Tombstone,
   TombstoneKind,
 } from '../core/types'
 
 const DB_NAME = 'recall'
-/** v2 added tombstones and the `updated` stamp used by sync. */
-const DB_VERSION = 2
+/**
+ * v2 added tombstones and the `updated` stamp used by sync.
+ * v3 replaced a note's fixed front/back with named fields plus a note type.
+ */
+const DB_VERSION = 3
 
-type StoreName = 'decks' | 'notes' | 'cards' | 'logs' | 'media' | 'counters' | 'tombstones'
+type StoreName =
+  | 'decks'
+  | 'notes'
+  | 'cards'
+  | 'logs'
+  | 'media'
+  | 'counters'
+  | 'tombstones'
+  | 'notetypes'
 
 /** Stores whose records carry an `updated` stamp. */
 const STAMPED: StoreName[] = ['decks', 'notes', 'cards', 'media']
@@ -51,6 +64,38 @@ function open(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('tombstones')) {
         db.createObjectStore('tombstones', { keyPath: 'id' }).createIndex('deletedAt', 'deletedAt')
+      }
+      if (!db.objectStoreNames.contains('notetypes')) {
+        db.createObjectStore('notetypes', { keyPath: 'id' })
+      }
+
+      // The built-ins must exist before any note can reference them.
+      const notetypes = tx.objectStore('notetypes')
+      for (const type of BUILTIN_NOTETYPES) notetypes.put(type)
+
+      // v3: notes used to carry `kind` with a fixed front and back. Convert
+      // them in place so existing cards keep pointing at the right content.
+      if (event.oldVersion > 0 && event.oldVersion < 3) {
+        tx.objectStore('notes').openCursor().onsuccess = (e) => {
+          const cursor = (e.target as IDBRequest<IDBCursorWithValue>).result
+          if (!cursor) return
+          const old = cursor.value as {
+            kind?: string
+            front?: string
+            back?: string
+            notetypeId?: string
+            fields?: string[]
+          }
+          if (old.fields == null) {
+            const { kind, front, back, ...rest } = old
+            cursor.update({
+              ...rest,
+              notetypeId: kind === 'reversed' ? 'reversed' : 'basic',
+              fields: [front ?? '', back ?? ''],
+            })
+          }
+          cursor.continue()
+        }
       }
 
       // Records written before v2 have no `updated`; backfill so a first sync
@@ -154,6 +199,10 @@ export const idbStore: Store = {
     await remove('counters', await keysByIndex('counters', 'deckId', deckId))
     await removeTracked('decks', 'deck', [deckId])
   },
+
+  listNotetypes: () => readAll<Notetype>('notetypes'),
+  putNotetype: (notetype) => put('notetypes', [notetype]),
+  deleteNotetype: (id) => removeTracked('notetypes', 'notetype', [id]),
 
   listNotes: (deckId) => readAll<Note>('notes', 'deckId', deckId),
   putNote: (note) => put('notes', [note]),

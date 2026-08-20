@@ -12,16 +12,49 @@ export type Rating = (typeof Rating)[keyof typeof Rating]
 
 export type CardState = 'new' | 'learning' | 'review' | 'relearning'
 
-export type NoteKind = 'basic' | 'reversed'
+/**
+ * One card a note type produces. Rather than Anki's template language, a
+ * template just names which fields are asked and which are shown as the answer
+ * — enough to carry real note types across without evaluating anything.
+ */
+export interface CardTemplate {
+  name: string
+  /** Indexes into the note type's `fields`, shown as the question. */
+  question: number[]
+  /** Indexes shown once the answer is revealed. */
+  answer: number[]
+}
+
+/**
+ * The shape of a note: its named fields, and the cards they generate.
+ * Built-in types use stable ids so imports and migrations can rely on them.
+ */
+export interface Notetype {
+  id: string
+  name: string
+  /** Field names, in display order. */
+  fields: string[]
+  templates: CardTemplate[]
+  /**
+   * Cloze types generate one card per `{{cN::…}}` marker found in
+   * `clozeField`, instead of one card per template.
+   */
+  isCloze: boolean
+  clozeField?: number
+  created: number
+  updated: number
+}
 
 /** A note holds the content the user typed. Cards are generated from it. */
 export interface Note {
   id: string
   deckId: string
-  kind: NoteKind
-  /** Field text may embed media tokens: {{media:<mediaId>}} */
-  front: string
-  back: string
+  notetypeId: string
+  /**
+   * Field values, positionally matching the note type's `fields`.
+   * Text may embed media tokens: {{media:<mediaId>}}
+   */
+  fields: string[]
   tags: string[]
   created: number
   modified: number
@@ -29,12 +62,12 @@ export interface Note {
   updated: number
 }
 
-/** A single scheduled item. A reversed note produces two of these. */
+/** A single scheduled item. A note type with two templates produces two. */
 export interface Card {
   id: string
   noteId: string
   deckId: string
-  /** 0 = front->back, 1 = back->front */
+  /** Which card of the note this is: a template index, or a cloze number - 1. */
   ordinal: number
   state: CardState
   /** Index into the deck's learning/relearning steps. */
@@ -111,7 +144,7 @@ export interface MediaItem {
   updated: number
 }
 
-export type TombstoneKind = 'deck' | 'note' | 'card' | 'media'
+export type TombstoneKind = 'deck' | 'note' | 'card' | 'media' | 'notetype'
 
 /**
  * A record of something deleted. Sync needs these: without a tombstone a delete

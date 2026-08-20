@@ -3,7 +3,17 @@
 // forgets on reload, and the UI says so.
 
 import type { Store } from '../core/storage'
-import type { Card, DayCounter, Deck, MediaItem, Note, ReviewLog, Tombstone } from '../core/types'
+import { BUILTIN_NOTETYPES } from '../core/notetypes'
+import type {
+  Card,
+  DayCounter,
+  Deck,
+  MediaItem,
+  Note,
+  Notetype,
+  ReviewLog,
+  Tombstone,
+} from '../core/types'
 
 export function createMemoryStore(): Store {
   const decks = new Map<string, Deck>()
@@ -13,6 +23,7 @@ export function createMemoryStore(): Store {
   const media = new Map<string, MediaItem>()
   const counters = new Map<string, DayCounter>()
   const graves = new Map<string, Tombstone>()
+  const notetypes = new Map<string, Notetype>(BUILTIN_NOTETYPES.map((t) => [t.id, t]))
 
   const byDeck = <T extends { deckId: string }>(map: Map<string, T>, deckId?: string) =>
     [...map.values()].filter((v) => deckId === undefined || v.deckId === deckId)
@@ -37,6 +48,17 @@ export function createMemoryStore(): Store {
       for (const [id, c] of counters) if (c.deckId === deckId) counters.delete(id)
       decks.delete(deckId)
       bury([deckId], 'deck')
+    },
+
+    async listNotetypes() {
+      return [...notetypes.values()]
+    },
+    async putNotetype(notetype) {
+      notetypes.set(notetype.id, notetype)
+    },
+    async deleteNotetype(id) {
+      notetypes.delete(id)
+      bury([id], 'notetype')
     },
 
     async listNotes(deckId) {

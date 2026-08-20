@@ -25,15 +25,22 @@ preamble. Two sample files live in `examples/` and are covered by tests, so they
 can't rot.
 
 **Anki `.apkg`** is partly built: the zip reader, the package protobuf decoder,
-and the scheduling mapper are done and tested. What remains is reading the
-SQLite collection and deciding how Anki note types with more than two templates
-map onto this app's two card shapes.
+the scheduling mapper and the collection reader are done and tested, for both
+schema 11 and schema 18. What remains is mapping Anki note types onto the ones
+here, extracting media, and the import screen itself.
+
+Anki's template *language* is deliberately not implemented. A template here
+records which fields are asked and which are answered — enough to carry real
+note types across, while card content keeps rendering as text rather than HTML,
+so an imported deck can't inject markup.
 
 ## What works
 
 - **Decks** — create, rename, configure, delete.
-- **Notes and cards** — basic (front → back) and reversed (both directions, two
-  cards from one note). Editing a note reconciles its cards.
+- **Note types** — a note has named fields, and its note type says which fields
+  each card asks and answers. Built in: Basic, Basic (and reversed), and Cloze,
+  which makes one card per `{{c1::…}}` deletion. Editing a note reconciles its
+  cards without disturbing the scheduling of the ones that survive.
 - **Media** — images, audio and video attach to either field, stored as blobs in
   IndexedDB and referenced by a `{{media:<id>}}` token. Audio and video on the
   answer side autoplay on reveal.
@@ -60,7 +67,8 @@ src/
     fsrs.ts        FSRS-5 memory model (stability, difficulty, retrievability)
     scheduler.ts   card state machine, queue building, interval previews
     stats.ts       aggregations over review history
-    notes.ts       note → card generation, media-token parsing
+    notes.ts       note → card generation, faces, media-token parsing
+    notetypes.ts   built-in note types, cloze parsing and rendering
     storage.ts     the Store interface persistence must satisfy
   data/        web platform bindings
     idb.ts         IndexedDB implementation of Store

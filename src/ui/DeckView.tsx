@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { Go } from '../App'
-import { plainText } from '../core/notes'
+import { plainText, sortField } from '../core/notes'
 import { buildQueue } from '../core/scheduler'
 import { useApp } from '../data/store'
 
@@ -25,7 +25,7 @@ export function DeckView({ deckId, go }: { deckId: string; go: Go }) {
     const q = query.trim().toLowerCase()
     if (!q) return deckNotes
     return deckNotes.filter((n) =>
-      `${plainText(n.front)} ${plainText(n.back)} ${n.tags.join(' ')}`.toLowerCase().includes(q),
+      `${n.fields.map(plainText).join(' ')} ${n.tags.join(' ')}`.toLowerCase().includes(q),
     )
   }, [deckNotes, query])
 
@@ -105,8 +105,10 @@ export function DeckView({ deckId, go }: { deckId: string; go: Go }) {
                 onClick={() => go({ name: 'editor', deckId, noteId: note.id })}
               >
                 <div className="grow" style={{ minWidth: 0 }}>
-                  <div className="front ellipsis">{plainText(note.front) || '(empty)'}</div>
-                  <div className="back tiny ellipsis">{plainText(note.back) || '(empty)'}</div>
+                  <div className="front ellipsis">{plainText(sortField(note)) || '(empty)'}</div>
+                  <div className="back tiny ellipsis">
+                    {plainText(note.fields.slice(1).join(' · ')) || '(empty)'}
+                  </div>
                 </div>
                 <div className="row" style={{ gap: 4 }}>
                   {own.map((c) => (
