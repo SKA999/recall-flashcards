@@ -117,6 +117,41 @@ function decodeMediaEntry(bytes: Uint8Array): MediaEntry {
   return entry
 }
 
+/**
+ * Decode a schema-18 card template's config blob.
+ * Template.Config { string q_format = 1; string a_format = 2; }
+ */
+export function decodeTemplateConfig(bytes: Uint8Array): { qfmt: string; afmt: string } {
+  const reader = new Reader(bytes)
+  const decoder = new TextDecoder()
+  let qfmt = ''
+  let afmt = ''
+  for (let tag = reader.tag(); tag; tag = reader.tag()) {
+    if (tag.field === 1 && tag.wire === WIRE_LENGTH) qfmt = decoder.decode(reader.bytesField())
+    else if (tag.field === 2 && tag.wire === WIRE_LENGTH) afmt = decoder.decode(reader.bytesField())
+    else reader.skip(tag.wire)
+  }
+  return { qfmt, afmt }
+}
+
+/**
+ * Decode a schema-18 note type's kind.
+ * Notetype.Config { Kind kind = 1 } where KIND_NORMAL = 0, KIND_CLOZE = 1.
+ * Returns 0 for a blob we cannot read, so callers fall back rather than guess.
+ */
+export function decodeNotetypeKind(bytes: Uint8Array): number {
+  try {
+    const reader = new Reader(bytes)
+    for (let tag = reader.tag(); tag; tag = reader.tag()) {
+      if (tag.field === 1 && tag.wire === WIRE_VARINT) return reader.varint()
+      reader.skip(tag.wire)
+    }
+  } catch {
+    // A malformed config should not stop the import.
+  }
+  return 0
+}
+
 /** Decode the modern media list. Index in the array is the file's name in the zip. */
 export function decodeMediaEntries(bytes: Uint8Array): MediaEntry[] {
   const reader = new Reader(bytes)

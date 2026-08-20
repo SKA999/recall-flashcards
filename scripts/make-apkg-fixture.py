@@ -9,7 +9,8 @@ suspended card, and a media reference.
 
 Layout per anki/rslib/src/storage/schema11.sql.
 """
-import json, os, sqlite3, sys, tempfile, zipfile
+import json, os, sqlite3, tempfile, zipfile
+from compression import zstd
 
 OUT = os.path.join(os.path.dirname(__file__), '..', 'src', 'import', '__tests__', 'fixtures')
 US = '\x1f'  # Anki joins note fields with the unit separator
@@ -144,6 +145,111 @@ def build(path):
     db.close()
 
 
+# ---------------------------------------------------------------- protobuf --
+# Only the handful of fields the reader looks at, hand-encoded.
+
+def varint(n):
+    out = bytearray()
+    while n > 0x7F:
+        out.append((n & 0x7F) | 0x80)
+        n >>= 7
+    out.append(n)
+    return bytes(out)
+
+
+def tag(field, wire):
+    return varint(field * 8 + wire)
+
+
+def pb_varint(field, value):
+    return tag(field, 0) + varint(value)
+
+
+def pb_string(field, value):
+    raw = value.encode('utf-8')
+    return tag(field, 2) + varint(len(raw)) + raw
+
+
+def pb_bytes(field, raw):
+    return tag(field, 2) + varint(len(raw)) + raw
+
+
+def notetype_config(is_cloze):
+    """Notetype.Config — KIND_CLOZE = 1."""
+    return pb_varint(1, 1 if is_cloze else 0)
+
+
+def template_config(qfmt, afmt):
+    """Template.Config — q_format = 1, a_format = 2."""
+    return pb_string(1, qfmt) + pb_string(2, afmt)
+
+
+def media_entries(names):
+    """MediaEntries { repeated MediaEntry entries = 1 }."""
+    out = b''
+    for name, size in names:
+        entry = pb_string(1, name) + pb_varint(2, size)
+        out += pb_bytes(1, entry)
+    return out
+
+
+def build_modern(path):
+    """Schema 18: note types and decks are real tables. DDL per
+    rslib/src/storage/upgrades/schema15_upgrade.sql; schema 18 only changed
+    `graves`, which the reader never touches."""
+    db = sqlite3.connect(path)
+    db.executescript("""
+        create table col (id integer primary key, crt integer not null, mod integer not null,
+          scm integer not null, ver integer not null, dty integer not null, usn integer not null,
+          ls integer not null, conf text not null, models text not null, decks text not null,
+          dconf text not null, tags text not null);
+        create table notes (id integer primary key, guid text not null, mid integer not null,
+          mod integer not null, usn integer not null, tags text not null, flds text not null,
+          sfld integer not null, csum integer not null, flags integer not null, data text not null);
+        create table cards (id integer primary key, nid integer not null, did integer not null,
+          ord integer not null, mod integer not null, usn integer not null, type integer not null,
+          queue integer not null, due integer not null, ivl integer not null, factor integer not null,
+          reps integer not null, lapses integer not null, left integer not null, odue integer not null,
+          odid integer not null, flags integer not null, data text not null);
+        create table notetypes (id integer not null primary key, name text not null,
+          mtime_secs integer not null, usn integer not null, config blob not null);
+        create table fields (ntid integer not null, ord integer not null, name text not null,
+          config blob not null, primary key (ntid, ord));
+        create table templates (ntid integer not null, ord integer not null, name text not null,
+          mtime_secs integer not null, usn integer not null, config blob not null,
+          primary key (ntid, ord));
+        create table decks (id integer primary key not null, name text not null,
+          mtime_secs integer not null, usn integer not null, common blob not null, kind blob not null);
+        create table graves (oid integer not null, type integer not null, usn integer not null,
+          primary key (oid, type)) without rowid;
+    """)
+    db.execute("insert into col values (1,?,?,?,18,0,-1,0,'','','','','')", (CRT, MOD, MOD * 1000))
+
+    for mid, model in MODELS.items():
+        mid = int(mid)
+        db.execute("insert into notetypes values (?,?,?,-1,?)",
+                   (mid, model['name'], MOD, notetype_config(model['type'] == 1)))
+        for f in model['flds']:
+            db.execute("insert into fields values (?,?,?,?)", (mid, f['ord'], f['name'], b''))
+        for t in model['tmpls']:
+            db.execute("insert into templates values (?,?,?,?,-1,?)",
+                       (mid, t['ord'], t['name'], MOD, template_config(t['qfmt'], t['afmt'])))
+
+    for did, deck in DECKS.items():
+        # Schema 18 nests deck names with the unit separator, not "::".
+        db.execute("insert into decks values (?,?,?,-1,?,?)",
+                   (int(did), deck['name'].replace('::', US), MOD, b'', b''))
+
+    for nid, mid, _did, flds, tags in NOTES:
+        db.execute("insert into notes values (?,?,?,?,-1,?,?,?,0,0,'')",
+                   (nid, f"guid{nid}", mid, MOD, f" {tags} " if tags else "", US.join(flds), flds[0]))
+    for cid, nid, did, ordn, type_, queue, due, ivl, factor, reps, lapses, data in CARDS:
+        db.execute("insert into cards values (?,?,?,?,?,-1,?,?,?,?,?,?,?,0,0,0,0,?)",
+                   (cid, nid, did, ordn, MOD, type_, queue, due, ivl, factor, reps, lapses, data))
+    db.commit()
+    db.close()
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
@@ -156,6 +262,22 @@ def main():
             z.writestr('media', json.dumps({"0": "brisa.png", "1": "estrenar.mp3"}))
             z.writestr('0', b'\x89PNG\r\n\x1a\n' + b'fake image bytes')
             z.writestr('1', b'ID3' + b'fake audio bytes')
+        print(f"wrote {target} ({os.path.getsize(target)} bytes)")
+
+        modern_col = os.path.join(tmp, 'collection.anki21b')
+        build_modern(modern_col)
+        target = os.path.abspath(os.path.join(OUT, 'sample-modern.apkg'))
+        image = b'\x89PNG\r\n\x1a\n' + b'fake image bytes'
+        audio = b'ID3' + b'fake audio bytes'
+        with zipfile.ZipFile(target, 'w', zipfile.ZIP_DEFLATED) as z:
+            # Modern packages zstd-compress the collection and every media file.
+            with open(modern_col, 'rb') as f:
+                z.writestr('collection.anki21b', zstd.compress(f.read()))
+            z.writestr('meta', pb_varint(1, 3))  # PackageMetadata.version = LATEST
+            z.writestr('media', media_entries([('brisa.png', len(image)),
+                                               ('estrenar.mp3', len(audio))]))
+            z.writestr('0', zstd.compress(image))
+            z.writestr('1', zstd.compress(audio))
         print(f"wrote {target} ({os.path.getsize(target)} bytes)")
 
 

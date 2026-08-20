@@ -9,6 +9,7 @@
 // the reader is testable in Node and the WASM loading stays platform-specific.
 
 import type { AnkiCardRow } from '../core/anki'
+import { decodeTemplateConfig, decodeNotetypeKind } from './protobuf'
 
 /** The slice of a SQL driver this reader needs. */
 export interface SqlQuery {
@@ -24,8 +25,17 @@ export interface AnkiNotetype {
   isCloze: boolean
   /** Field names in display order. */
   fields: string[]
-  /** One entry per card template. */
-  templates: { ord: number; name: string }[]
+  /** One entry per card template, with Anki's raw front/back formats. */
+  templates: AnkiTemplate[]
+}
+
+export interface AnkiTemplate {
+  ord: number
+  name: string
+  /** Anki's question format, e.g. "{{Front}}". Empty if unavailable. */
+  qfmt: string
+  /** Anki's answer format, e.g. "{{FrontSide}}<hr>{{Back}}". */
+  afmt: string
 }
 
 export interface AnkiDeck {
@@ -62,6 +72,7 @@ function rows(db: SqlQuery, sql: string): Record<string, unknown>[] {
 }
 
 const int = (v: unknown): number => (typeof v === 'number' ? v : Number(v ?? 0))
+const blob = (v: unknown): Uint8Array => (v instanceof Uint8Array ? v : new Uint8Array())
 const str = (v: unknown): string => (typeof v === 'string' ? v : v == null ? '' : String(v))
 
 function tableExists(db: SqlQuery, name: string): boolean {
@@ -153,9 +164,11 @@ function readSchema11(db: SqlQuery, notes: AnkiNote[], cards: AnkiCardRow[]): Om
     })),
     notetypes: Object.values(models).map((m: any) => {
       const id = int(m.id)
-      const templates = (m.tmpls ?? []).map((t: any, i: number) => ({
+      const templates: AnkiTemplate[] = (m.tmpls ?? []).map((t: any, i: number) => ({
         ord: int(t.ord ?? i),
         name: str(t.name) || `Card ${i + 1}`,
+        qfmt: str(t.qfmt),
+        afmt: str(t.afmt),
       }))
       return {
         id,
@@ -180,10 +193,12 @@ function readSchema18(db: SqlQuery, notes: AnkiNote[], cards: AnkiCardRow[]): Om
     fieldsByType.set(int(r.ntid), list)
   }
 
-  const templatesByType = new Map<number, { ord: number; name: string }[]>()
-  for (const r of rows(db, 'select ntid, ord, name from templates')) {
+  const templatesByType = new Map<number, AnkiTemplate[]>()
+  for (const r of rows(db, 'select ntid, ord, name, config from templates')) {
     const list = templatesByType.get(int(r.ntid)) ?? []
-    list.push({ ord: int(r.ord), name: str(r.name) })
+    // The front and back formats live in a protobuf blob in this schema.
+    const config = decodeTemplateConfig(blob(r.config))
+    list.push({ ord: int(r.ord), name: str(r.name), qfmt: config.qfmt, afmt: config.afmt })
     templatesByType.set(int(r.ntid), list)
   }
 
@@ -196,14 +211,15 @@ function readSchema18(db: SqlQuery, notes: AnkiNote[], cards: AnkiCardRow[]): Om
       id: int(d.id),
       name: normaliseDeckName(str(d.name)),
     })),
-    notetypes: rows(db, 'select id, name from notetypes').map((n) => {
+    notetypes: rows(db, 'select id, name, config from notetypes').map((n) => {
       const id = int(n.id)
       const templates = (templatesByType.get(id) ?? []).sort(byOrd)
       return {
         id,
         name: str(n.name),
-        // Schema 18 keeps the cloze flag in a protobuf blob, so infer it instead.
-        isCloze: inferCloze(false, templates.length, ordinals.get(id) ?? 0),
+        // Declared in the note type's protobuf config; the structural test is a
+        // fallback for a blob we could not read.
+        isCloze: inferCloze(decodeNotetypeKind(blob(n.config)) === 1, templates.length, ordinals.get(id) ?? 0),
         fields: (fieldsByType.get(id) ?? []).sort(byOrd).map((f) => f.name),
         templates,
       }
