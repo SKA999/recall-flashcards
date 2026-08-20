@@ -25,6 +25,8 @@ import type {
   Rating,
   ReviewLog,
 } from '../core/types'
+import { exportCollection, openBackup, restoreCollection } from './backup'
+import type { ExportResult, RestoreResult } from './backup'
 import { backend, isDurable, selectBackend } from './backend'
 import { seedDemo } from './demo'
 
@@ -87,6 +89,10 @@ interface AppApi extends Collection {
   undoAnswer(): Promise<string | undefined>
   canUndo: boolean
   addMedia(deckId: string, file: File): Promise<string>
+  /** Serialise the whole collection to a downloadable archive. */
+  exportBackup(): Promise<ExportResult>
+  /** Merge a backup in, leaving existing records untouched. */
+  restoreBackup(buffer: ArrayBuffer): Promise<RestoreResult>
   counterFor(deckId: string, now?: number): DayCounter
 }
 
@@ -387,6 +393,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return item.id
   }, [])
 
+  const exportBackup = useCallback(() => exportCollection(backend()), [])
+
+  const restoreBackup = useCallback(async (buffer: ArrayBuffer) => {
+    const backup = await openBackup(buffer)
+    const result = await restoreCollection(backend(), backup)
+    // Re-read rather than patch: a restore touches every kind of record.
+    const [decks, notetypes, notes, cards, logs] = await Promise.all([
+      backend().listDecks(),
+      backend().listNotetypes(),
+      backend().listNotes(),
+      backend().listCards(),
+      backend().listLogs(),
+    ])
+    setState((s) => ({ ...s, decks, notetypes, notes, cards, logs }))
+    return result
+  }, [])
+
   const counterFor = useCallback(
     (deckId: string, now = Date.now()) => {
       const key = `${deckId}:${dayKey(now)}`
@@ -449,6 +472,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       undoAnswer,
       canUndo: undoStack.length > 0,
       addMedia,
+      exportBackup,
+      restoreBackup,
       counterFor,
     }),
     [
@@ -470,6 +495,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       answerCard,
       undoAnswer,
       addMedia,
+      exportBackup,
+      restoreBackup,
       counterFor,
     ],
   )

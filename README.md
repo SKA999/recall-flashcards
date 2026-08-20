@@ -15,6 +15,20 @@ npm run preview  # serve the production build (needed to exercise offline mode)
 npm run icons    # regenerate the PWA icons in public/
 ```
 
+## Backup
+
+Your collection lives in one browser's IndexedDB. **Backup → Export collection**
+writes all of it to a single zip: decks, note types, notes, cards, review
+history, scheduling and media. It is an ordinary zip holding `collection.json`
+plus the media files, so you can open it and check what's in there.
+
+Restoring **adds what isn't already present and leaves everything else alone**.
+It never overwrites a record that exists, so restoring an old backup cannot undo
+reviews done since, and restoring the same file twice is a no-op.
+
+There is still no sync. A backup is the only way to move a collection between
+devices, and the only protection against clearing your browser data.
+
 ## Importing
 
 **CSV / TSV** works today. Import from the deck list, pick a file, map the
@@ -70,6 +84,7 @@ src/
     notes.ts       note → card generation, faces, media-token parsing
     notetypes.ts   built-in note types, cloze parsing and rendering
     storage.ts     the Store interface persistence must satisfy
+    backup.ts      the backup document, and what a restore should write
   data/        web platform bindings
     idb.ts         IndexedDB implementation of Store
     media.ts       blob → object URL cache

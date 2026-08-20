@@ -34,6 +34,9 @@ export function DeckList({ go }: { go: Go }) {
         <button className="btn ghost" onClick={() => go({ name: 'import' })}>
           Import
         </button>
+        <button className="btn ghost" onClick={() => go({ name: 'backup' })}>
+          Backup
+        </button>
         <button className="btn ghost" onClick={() => go({ name: 'stats' })}>
           Stats
         </button>
