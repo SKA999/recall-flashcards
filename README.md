@@ -64,6 +64,29 @@ Companion columns follow the column they belong to — "Chinese audio" sits with
 layout above asks *Chinese + Pinyin + Chinese audio* and answers with *English +
 English audio*. Sound plays by itself on both sides.
 
+### Making the audio
+
+`.claude/skills/flashcard-audio/` holds a skill for generating the recordings.
+Leave the audio columns blank and let it fill them in:
+
+```bash
+python3 .claude/skills/flashcard-audio/scripts/make-audio.py cards.csv --zip deck.zip
+```
+
+It uses the speech synthesis built into macOS — no account, no key, no
+per-character cost — picks a voice matching the script each column is written
+in, shares one clip between rows with identical text, and skips cells that are
+already filled so it can be re-run as a deck grows.
+
+The trap it exists to prevent: a voice asked to read a script it doesn't know
+writes a *silent file* rather than failing. `say -v Samantha` reading Chinese
+produces 0.01 seconds of nothing, with no error — so a whole deck can be
+recorded, imported and reviewed before anyone notices. The script detects the
+script of each column, refuses a mismatched voice, and measures every clip.
+
+`references/cloud-tts.md` in the skill covers Azure, Google, Polly, OpenAI,
+ElevenLabs and Forvo for when the system voices aren't good enough.
+
 ### Sections
 
 A column named for a week, month, unit or lesson becomes a **section**: one tag
