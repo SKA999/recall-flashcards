@@ -3,8 +3,7 @@
 A spaced-repetition flashcard app, Anki-shaped but built from scratch. This is
 the **web app**; the core is deliberately portable so a phone app can reuse it.
 
-**Live: https://ska999.github.io/recall-flashcards/**
-**Decks: https://ska999.github.io/recall-flashcards/decks/** — deployed from `main` by
+**Live: https://ska999.github.io/recall-flashcards/** — deployed from `main` by
 GitHub Actions on every push, gated on the test suite.
 
 ```bash
