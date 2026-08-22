@@ -22,6 +22,25 @@ writes all of it to a single zip: decks, note types, notes, cards, review
 history, scheduling and media. It is an ordinary zip holding `collection.json`
 plus the media files, so you can open it and check what's in there.
 
+### Keeping a copy without remembering to
+
+Two mechanisms, because what a browser allows depends on the platform:
+
+- **Persistent storage** is requested on every start. It asks the browser not to
+  evict the data when the device runs short of space, and it is the only
+  eviction protection that works on a phone. Browsers decide for themselves;
+  installing the app to the home screen makes a yes much more likely. The
+  Backup screen shows whether it was granted.
+- **A backup folder**, on desktop Chrome and Edge. Pick one once and a copy is
+  written there on the first visit each day, silently, overwriting that day's
+  file. No phone browser offers folder access, so this is unavailable exactly
+  where the eviction risk is highest — which is why the reminder exists too.
+
+When a copy is overdue and there are reviews that would be lost, the deck list
+says so and links straight to the backup screen. A collection with nothing new
+in it is never nagged about: rewriting an identical file only teaches people to
+ignore the message.
+
 Restoring **adds what isn't already present and leaves everything else alone**.
 It never overwrites a record that exists, so restoring an old backup cannot undo
 reviews done since, and restoring the same file twice is a no-op.

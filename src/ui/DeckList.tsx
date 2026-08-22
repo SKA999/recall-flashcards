@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import type { Go } from '../App'
+import { backupUrgency } from '../core/backup-policy'
 import { buildQueue } from '../core/scheduler'
 import { useApp } from '../data/store'
 
 export function DeckList({ go }: { go: Go }) {
-  const { decks, cards, createDeck, counterFor, durable } = useApp()
+  const { decks, cards, createDeck, counterFor, durable, backupState } = useApp()
   const [adding, setAdding] = useState(false)
   const [name, setName] = useState('')
 
@@ -44,6 +45,28 @@ export function DeckList({ go }: { go: Go }) {
           New deck
         </button>
       </header>
+
+      {(() => {
+        const urgency = backupUrgency(backupState, Date.now())
+        if (urgency === 'none' || !durable) return null
+        const reviews = `${backupState.changesSince} review${backupState.changesSince === 1 ? '' : 's'}`
+        return (
+          <button
+            className="card notice row"
+            style={{ marginBottom: 16, width: '100%', textAlign: 'left', cursor: 'pointer' }}
+            onClick={() => go({ name: 'backup' })}
+          >
+            <span className="grow">
+              {urgency === 'never'
+                ? `No copy of your cards has ever been saved, and there are ${reviews} to lose.`
+                : urgency === 'stale'
+                  ? `Your last copy is over a week old — ${reviews} since.`
+                  : `${reviews} since your last copy.`}
+            </span>
+            <span className="pill">Save</span>
+          </button>
+        )
+      })()}
 
       {!durable && (
         <div className="card notice" style={{ marginBottom: 16 }}>

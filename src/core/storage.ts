@@ -51,4 +51,11 @@ export interface Store {
 
   /** Deletions since `since`, for a future sync push. */
   listTombstones(since?: number): Promise<Tombstone[]>
+
+  /**
+   * Device-local settings: never synced, and able to hold values that are
+   * structured-cloneable but not JSON, such as a filesystem handle.
+   */
+  getSetting<T>(key: string): Promise<T | undefined>
+  putSetting(key: string, value: unknown): Promise<void>
 }

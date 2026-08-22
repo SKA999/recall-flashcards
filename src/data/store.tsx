@@ -26,6 +26,16 @@ import type {
   Rating,
   ReviewLog,
 } from '../core/types'
+import { backupDue } from '../core/backup-policy'
+import type { BackupState } from '../core/backup-policy'
+import {
+  folderIsWritable,
+  readBackupMarks,
+  recordBackup,
+  requestPersistentStorage,
+  savedBackupFolder,
+  writeBackupToFolder,
+} from './autobackup'
 import { exportCollection, openBackup, restoreCollection } from './backup'
 import type { ExportResult, RestoreResult } from './backup'
 import { backend, isDurable, selectBackend } from './backend'
@@ -94,6 +104,10 @@ interface AppApi extends Collection {
   exportBackup(): Promise<ExportResult>
   /** Merge a backup in, leaving existing records untouched. */
   restoreBackup(buffer: ArrayBuffer): Promise<RestoreResult>
+  /** How overdue a copy is, for the reminder and the backup screen. */
+  backupState: BackupState
+  /** Note that a copy was just taken, however it was taken. */
+  markBackedUp(at?: number): Promise<void>
   counterFor(deckId: string, now?: number): DayCounter
 }
 
@@ -103,6 +117,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<Collection>(empty)
   const [loading, setLoading] = useState(true)
   const [durable, setDurable] = useState(true)
+  const [backupMarks, setBackupMarks] = useState<{ lastBackupAt?: number; reviewsAtBackup: number }>(
+    { reviewsAtBackup: 0 },
+  )
   const stateRef = useRefLike(state)
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([])
   const undoRef = useRefLike(undoStack)
@@ -130,6 +147,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       for (const type of missing) await backend().putNotetype(type)
       setState({ decks, notetypes: [...notetypes, ...missing], notes, cards, logs, counters: {} })
       setDurable(isDurable())
+      setBackupMarks(await readBackupMarks(backend()))
       setLoading(false)
     })()
     return () => {
@@ -411,6 +429,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return result
   }, [])
 
+  const markBackedUp = useCallback(async (at = Date.now()) => {
+    const reviews = stateRef.current.logs.length
+    await recordBackup(backend(), at, reviews)
+    setBackupMarks({ lastBackupAt: at, reviewsAtBackup: reviews })
+  }, [stateRef])
+
   const counterFor = useCallback(
     (deckId: string, now = Date.now()) => {
       const key = `${deckId}:${dayKey(now)}`
@@ -453,6 +477,41 @@ export function AppProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loading, state.decks.length])
 
+  const backupState: BackupState = useMemo(
+    () => ({
+      lastBackupAt: backupMarks.lastBackupAt,
+      changesSince: Math.max(state.logs.length - backupMarks.reviewsAtBackup, 0),
+    }),
+    [backupMarks, state.logs.length],
+  )
+
+  // Runs once per app start. Persistence is asked for every time because a
+  // browser may say no early on and yes later, once the app looks established.
+  useEffect(() => {
+    if (loading || !durable) return
+    let alive = true
+    ;(async () => {
+      await requestPersistentStorage()
+      if (!alive || !backupDue(backupStateRef.current, Date.now())) return
+      const handle = await savedBackupFolder(backend())
+      // Without a still-granted permission this would need a click, and a
+      // permission prompt on startup is worse than a reminder in the app.
+      if (!handle || !(await folderIsWritable(handle))) return
+      try {
+        const written = await writeBackupToFolder(backend(), handle)
+        if (alive) await markBackedUp(written.at)
+      } catch {
+        // A folder that has moved or been removed leaves the reminder to it.
+      }
+    })()
+    return () => {
+      alive = false
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, durable])
+
+  const backupStateRef = useRefLike(backupState)
+
   const value = useMemo<AppApi>(
     () => ({
       ...state,
@@ -475,6 +534,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addMedia,
       exportBackup,
       restoreBackup,
+      backupState,
+      markBackedUp,
       counterFor,
     }),
     [
@@ -498,6 +559,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addMedia,
       exportBackup,
       restoreBackup,
+      backupState,
+      markBackedUp,
       counterFor,
     ],
   )

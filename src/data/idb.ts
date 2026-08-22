@@ -19,8 +19,9 @@ const DB_NAME = 'recall'
 /**
  * v2 added tombstones and the `updated` stamp used by sync.
  * v3 replaced a note's fixed front/back with named fields plus a note type.
+ * v4 added device-local settings.
  */
-const DB_VERSION = 3
+const DB_VERSION = 4
 
 type StoreName =
   | 'decks'
@@ -31,6 +32,7 @@ type StoreName =
   | 'counters'
   | 'tombstones'
   | 'notetypes'
+  | 'settings'
 
 /** Stores whose records carry an `updated` stamp. */
 const STAMPED: StoreName[] = ['decks', 'notes', 'cards', 'media']
@@ -67,6 +69,9 @@ function open(): Promise<IDBDatabase> {
       }
       if (!db.objectStoreNames.contains('notetypes')) {
         db.createObjectStore('notetypes', { keyPath: 'id' })
+      }
+      if (!db.objectStoreNames.contains('settings')) {
+        db.createObjectStore('settings', { keyPath: 'key' })
       }
 
       // The built-ins must exist before any note can reference them.
@@ -232,6 +237,15 @@ export const idbStore: Store = {
     return found ?? { id, deckId, day, newSeen: 0, reviewsDone: 0 }
   },
   putCounter: (counter) => put('counters', [counter]),
+
+  async getSetting<T>(key: string) {
+    const tx = (await db()).transaction('settings', 'readonly')
+    const row = await request<{ key: string; value: T } | undefined>(
+      tx.objectStore('settings').get(key),
+    )
+    return row?.value
+  },
+  putSetting: (key, value) => put('settings', [{ key, value }]),
 
   async listTombstones(since = 0) {
     const all = await readAll<Tombstone>('tombstones')

@@ -24,6 +24,7 @@ export function createMemoryStore(): Store {
   const counters = new Map<string, DayCounter>()
   const graves = new Map<string, Tombstone>()
   const notetypes = new Map<string, Notetype>(BUILTIN_NOTETYPES.map((t) => [t.id, t]))
+  const settings = new Map<string, unknown>()
 
   const byDeck = <T extends { deckId: string }>(map: Map<string, T>, deckId?: string) =>
     [...map.values()].filter((v) => deckId === undefined || v.deckId === deckId)
@@ -116,6 +117,13 @@ export function createMemoryStore(): Store {
     },
     async putCounter(counter) {
       counters.set(counter.id, counter)
+    },
+
+    async getSetting<T>(key: string) {
+      return settings.get(key) as T | undefined
+    },
+    async putSetting(key, value) {
+      settings.set(key, value)
     },
 
     async listTombstones(since = 0) {

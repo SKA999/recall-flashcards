@@ -289,6 +289,18 @@ textarea { resize: vertical; min-height: 84px; font-family: inherit; }
   background: color-mix(in srgb, var(--c2) 10%, var(--surface));
 }
 
+@media (max-width: 560px) {
+  /* Four actions plus a title do not fit across a phone. Let the bar wrap and
+     give the title its own line, so the primary action stays on screen instead
+     of sliding off the right edge. */
+  .topbar { flex-wrap: wrap; row-gap: 8px; column-gap: 6px; }
+  .topbar h1 { flex-basis: 100%; }
+  .topbar .spacer { display: none; }
+  /* Tighter than on desktop so the whole action row fits one line: three rows
+     of header on a phone costs more than the padding is worth. */
+  .topbar .btn { flex: 0 1 auto; padding: 8px 10px; }
+}
+
 @media (max-width: 520px) {
   .qa .side { font-size: 19px; }
   .qa .answer { font-size: 22px; }
