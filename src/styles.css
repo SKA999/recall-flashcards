@@ -236,6 +236,7 @@ textarea { resize: vertical; min-height: 84px; font-family: inherit; }
 
 .pill {
   padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600;
+  white-space: nowrap; flex-shrink: 0;
   background: var(--surface-2); color: var(--muted); border: 1px solid var(--border);
 }
 .pill.new { color: var(--new); }
@@ -252,6 +253,31 @@ textarea { resize: vertical; min-height: 84px; font-family: inherit; }
 .chart .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--muted); margin-top: 10px; }
 .chart .legend span { display: inline-flex; align-items: center; gap: 5px; }
 .swatch { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+
+/* Section filter: a deck's tags offered as chips. */
+.sections {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chip:hover { background: var(--surface-2); }
+.chip span { color: var(--muted); font-variant-numeric: tabular-nums; font-size: 12px; }
+.chip.on { border-color: var(--accent); color: var(--accent); }
+.chip.on span { color: var(--accent); }
 
 .empty { padding: 48px 20px; text-align: center; color: var(--muted); }
 

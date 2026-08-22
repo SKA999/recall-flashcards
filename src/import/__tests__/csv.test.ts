@@ -152,6 +152,34 @@ describe('header detection', () => {
     expect(looksLikeHeader([['Front', ''], ['a', 'b']])).toBe(false)
   })
 
+  it('recognises language and section headings', () => {
+    expect(
+      looksLikeHeader([
+        ['Chinese', 'Pinyin', 'English', 'Week'],
+        ['\u5b66\u6821', 'xu\u00e9xi\u00e0o', 'school', 'Week 1'],
+      ]),
+    ).toBe(true)
+  })
+
+  it('spots a heading above a column of filenames', () => {
+    // None of these words are in the known list; the filenames give it away.
+    expect(
+      looksLikeHeader([
+        ['Prompt', 'Recording'],
+        ['\u5b66\u6821', 'audio/xuexiao.wav'],
+      ]),
+    ).toBe(true)
+  })
+
+  it('still says no when the first row is filenames too', () => {
+    expect(
+      looksLikeHeader([
+        ['a.wav', 'b.wav'],
+        ['c.wav', 'd.wav'],
+      ]),
+    ).toBe(false)
+  })
+
   it('needs more than one row to decide', () => {
     expect(looksLikeHeader([['Front', 'Back']])).toBe(false)
   })

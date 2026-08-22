@@ -267,7 +267,17 @@ export function parseDelimited(input: string, options: ParseOptions = {}): Parse
 }
 
 /**
- * Does the first row look like column names rather than data? Headers are
+ * Words that appear as column headings across the decks people actually
+ * import - card sides, annotations, media columns and section labels.
+ */
+const KNOWN_HEADINGS =
+  /^(front|back|question|answer|term|definition|tags?|word|words|meaning|translation|phrase|sentence|example|notes?|hint|reading|pronunciation|pinyin|romaji|jyutping|zhuyin|bopomofo|furigana|audio|sound|image|picture|media|week|month|unit|lesson|chapter|section|topic|level|deck|english|chinese|mandarin|japanese|korean|spanish|french|german|italian)\b/i
+
+/** Something with a file extension, e.g. "audio/ni-hao.mp3". */
+const FILENAME = /\.[a-z0-9]{2,5}$/i
+
+/**
+ * Does the first row look like column names rather than data? Headings are
  * short, non-empty, and distinct.
  */
 export function looksLikeHeader(rows: string[][]): boolean {
@@ -277,13 +287,18 @@ export function looksLikeHeader(rows: string[][]): boolean {
   if (first.some((f) => f.length > 40 || f.includes('\n'))) return false
   if (new Set(first.map((f) => f.toLowerCase().trim())).size !== first.length) return false
 
-  const known = ['front', 'back', 'question', 'answer', 'term', 'definition', 'tags', 'word', 'meaning']
-  const hits = first.filter((f) => known.includes(f.toLowerCase().trim())).length
-  if (hits >= 1) return true
+  if (first.some((f) => KNOWN_HEADINGS.test(f.trim()))) return true
 
-  // Otherwise: headers rarely look like the data beneath them.
   const second = rows[1]
-  const firstLooksNumeric = first.filter((f) => /^-?\d+([.,]\d+)?$/.test(f.trim())).length
-  const secondLooksNumeric = second.filter((f) => /^-?\d+([.,]\d+)?$/.test(f.trim())).length
-  return secondLooksNumeric > firstLooksNumeric
+
+  // A column whose data are filenames but whose first row is not: that first
+  // row is a heading. "Chinese audio" above "audio/xuexiao.wav" is the case.
+  const looksLikeFile = (v: string) => FILENAME.test(v.trim())
+  for (let i = 0; i < first.length; i++) {
+    if (looksLikeFile(second[i] ?? '') && !looksLikeFile(first[i] ?? '')) return true
+  }
+
+  // Otherwise: headings rarely look like the data beneath them.
+  const numeric = (v: string) => /^-?\d+([.,]\d+)?$/.test(v.trim())
+  return second.filter(numeric).length > first.filter(numeric).length
 }

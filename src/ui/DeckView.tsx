@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import type { Go } from '../App'
-import { plainText, sortField } from '../core/notes'
+import { hasTag, plainText, sortField, tagCounts } from '../core/notes'
 import { buildQueue } from '../core/scheduler'
 import { useApp } from '../data/store'
 
@@ -8,6 +8,7 @@ export function DeckView({ deckId, go }: { deckId: string; go: Go }) {
   const { decks, notes, cards, counterFor } = useApp()
   const deck = decks.find((d) => d.id === deckId)
   const [query, setQuery] = useState('')
+  const [section, setSection] = useState<string | null>(null)
 
   const deckNotes = useMemo(
     () => notes.filter((n) => n.deckId === deckId).sort((a, b) => b.modified - a.modified),
@@ -15,19 +16,39 @@ export function DeckView({ deckId, go }: { deckId: string; go: Go }) {
   )
   const deckCards = useMemo(() => cards.filter((c) => c.deckId === deckId), [cards, deckId])
 
+  /** Sections are ordinary tags; a deck with several is offered as a filter. */
+  const sections = useMemo(() => {
+    const counts = tagCounts(deckNotes)
+    return [...counts.entries()]
+      // A tag on every note tells you nothing, so it is not offered as a filter.
+      .filter(([, n]) => n < deckNotes.length)
+      .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true }))
+  }, [deckNotes])
+
+  const sectionNoteIds = useMemo(() => {
+    if (!section) return null
+    return new Set(deckNotes.filter((n) => hasTag(n.tags, section)).map((n) => n.id))
+  }, [deckNotes, section])
+
+  const scopedCards = useMemo(
+    () => (sectionNoteIds ? deckCards.filter((c) => sectionNoteIds.has(c.noteId)) : deckCards),
+    [deckCards, sectionNoteIds],
+  )
+
   const queue = useMemo(() => {
     if (!deck) return null
     const now = Date.now()
-    return buildQueue(deckCards, deck.config, counterFor(deck.id, now), now)
-  }, [deck, deckCards, counterFor])
+    return buildQueue(scopedCards, deck.config, counterFor(deck.id, now), now)
+  }, [deck, scopedCards, counterFor])
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase()
-    if (!q) return deckNotes
-    return deckNotes.filter((n) =>
+    const inSection = sectionNoteIds ? deckNotes.filter((n) => sectionNoteIds.has(n.id)) : deckNotes
+    if (!q) return inSection
+    return inSection.filter((n) =>
       `${n.fields.map(plainText).join(' ')} ${n.tags.join(' ')}`.toLowerCase().includes(q),
     )
-  }, [deckNotes, query])
+  }, [deckNotes, query, sectionNoteIds])
 
   if (!deck) {
     return (
@@ -72,12 +93,32 @@ export function DeckView({ deckId, go }: { deckId: string; go: Go }) {
           <button
             className="btn primary"
             disabled={total === 0}
-            onClick={() => go({ name: 'review', deckId })}
+            onClick={() => go({ name: 'review', deckId, tag: section ?? undefined })}
           >
-            Study
+            {section ? `Study ${section}` : 'Study'}
           </button>
         </div>
       </div>
+
+      {sections.length > 0 && (
+        <div className="sections">
+          <button
+            className={`chip ${section === null ? 'on' : ''}`}
+            onClick={() => setSection(null)}
+          >
+            All <span>{deckNotes.length}</span>
+          </button>
+          {sections.map(([tag, count]) => (
+            <button
+              key={tag}
+              className={`chip ${section === tag ? 'on' : ''}`}
+              onClick={() => setSection(section === tag ? null : tag)}
+            >
+              {tag} <span>{count}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       <div className="row" style={{ marginBottom: 12 }}>
         <input

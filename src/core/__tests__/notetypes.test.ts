@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { faces, firstFieldWithMedia, reconcileCards } from '../notes'
+import { faces, firstFieldWithMedia, hasTag, reconcileCards, tagCounts, toTag } from '../notes'
 import {
   BASIC_ID,
   BUILTIN_NOTETYPES,
@@ -153,6 +153,37 @@ describe('what a card asks', () => {
     const n = note(['estrenar', 'to use for the first time', 'Hoy estreno zapatos.'], 'wide')
     expect(faces(n, wide, 0).answer).toEqual(['to use for the first time', 'Hoy estreno zapatos.'])
     expect(faces(n, wide, 1).question).toEqual(['to use for the first time'])
+  })
+})
+
+describe('section tags', () => {
+  it('joins a label into one tag, because a space would split it', () => {
+    expect(toTag('Week 3')).toBe('Week-3')
+    expect(toTag('  3B Week 1  ')).toBe('3B-Week-1')
+  })
+
+  it('leaves a single word alone', () => {
+    expect(toTag('Week3')).toBe('Week3')
+  })
+
+  it('yields nothing for an empty cell', () => {
+    expect(toTag('   ')).toBe('')
+  })
+
+  it('matches tags without caring about case', () => {
+    expect(hasTag(['Week-1', 'noun'], 'week-1')).toBe(true)
+    expect(hasTag(['Week-1'], 'Week-2')).toBe(false)
+  })
+
+  it('counts each tag once per note', () => {
+    const counts = tagCounts([
+      { tags: ['Week-1', 'noun'] },
+      { tags: ['Week-1', 'verb'] },
+      { tags: ['Week-2', 'Week-2'] },
+    ])
+    expect(counts.get('Week-1')).toBe(2)
+    expect(counts.get('Week-2')).toBe(1)
+    expect(counts.get('noun')).toBe(1)
   })
 })
 

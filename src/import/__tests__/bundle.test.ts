@@ -197,7 +197,7 @@ describe('the shipped Primary 5 example', () => {
 
     const index = mediaIndex(bundle.media)
     const lines = bundle.table.text.trim().split('\n')
-    expect(lines[0]).toBe('Chinese,English,Chinese audio,English audio,Tags')
+    expect(lines[0]).toBe('Chinese,Pinyin,English,Chinese audio,English audio,Week')
 
     // Every filename the table names must exist in the bundle.
     for (const line of lines.slice(1)) {
@@ -212,6 +212,23 @@ describe('the shipped Primary 5 example', () => {
 
   it('ships a blank template with the same columns', () => {
     const template = readFileSync(join(EXAMPLES, 'import-template.csv'), 'utf8')
-    expect(template.split('\n')[0]).toBe('Chinese,English,Chinese audio,English audio,Tags')
+    expect(template.split('\n')[0]).toBe(
+      'Chinese,Pinyin,English,Chinese audio,English audio,Week',
+    )
+  })
+
+  it('spreads the example across weeks, so sections have something to filter', () => {
+    const bytes = readFileSync(join(EXAMPLES, 'primary-5-example.zip'))
+    const zip = new File(
+      [bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer],
+      'primary-5-example.zip',
+      { type: 'application/zip' },
+    )
+    return readBundle([zip]).then((bundle) => {
+      const weeks = new Set(
+        bundle.table.text.trim().split('\n').slice(1).map((line) => line.split(',').pop()),
+      )
+      expect([...weeks].sort()).toEqual(['Week 1', 'Week 2', 'Week 3'])
+    })
   })
 })

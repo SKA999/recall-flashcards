@@ -49,8 +49,8 @@ primary-5.zip
 ```
 
 ```csv
-Chinese,English,Chinese audio,English audio,Tags
-学校,school,audio/xuexiao.wav,audio/school.wav,noun place
+Chinese,Pinyin,English,Chinese audio,English audio,Week
+学校,xuéxiào,school,audio/xuexiao.wav,audio/school.wav,Week 1
 ```
 
 A cell holding a filename becomes that sound or picture. Anki's
@@ -58,10 +58,21 @@ A cell holding a filename becomes that sound or picture. Anki's
 filename the bundle doesn't contain is reported rather than imported as text.
 
 Columns become the fields of a note type built on import, and each column is
-marked as belonging to the question or the answer side. A column named after
-another — "Chinese audio" beside "Chinese" — follows that column's side, so the
-default for the layout above asks *Chinese + Chinese audio* and answers with
-*English + English audio*. Sound plays by itself on both sides.
+marked as belonging to the question side, the answer side, or a section.
+Companion columns follow the column they belong to — "Chinese audio" sits with
+"Chinese", and an annotation like "Pinyin" joins the column to its left — so the
+layout above asks *Chinese + Pinyin + Chinese audio* and answers with *English +
+English audio*. Sound plays by itself on both sides.
+
+### Sections
+
+A column named for a week, month, unit or lesson becomes a **section**: one tag
+per card, kept whole. "Week 3" becomes the tag `Week-3` rather than splitting
+into `Week` and `3`, which is what happens if you type a space into an Anki tag.
+
+A deck with sections shows them as filters. Picking one narrows the card list
+and studies only that week; the counts, the queue and the daily limits all
+follow the filter.
 
 `examples/` has `import-template.csv` to fill in and `primary-5-example.zip` to
 try immediately.

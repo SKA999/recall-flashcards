@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react'
 import type { Go } from '../App'
 import { newId } from '../core/ids'
-import { plainText } from '../core/notes'
+import { plainText, toTag } from '../core/notes'
 import type { Notetype } from '../core/types'
 import { cellMediaNames, convertCell, mediaIndex, readBundle } from '../import/bundle'
 import type { Bundle } from '../import/bundle'
@@ -16,6 +16,8 @@ import { useApp } from '../data/store'
  */
 const IGNORE = 'ignore'
 const TAGS = 'tags'
+/** One tag for the whole cell - a week or unit label, not a list. */
+const SECTION = 'section'
 const QUESTION = 'question'
 const ANSWER = 'answer'
 const fieldRole = (index: number) => `f${index}`
@@ -23,6 +25,12 @@ const roleFieldIndex = (role: string) => (role.startsWith('f') ? Number(role.sli
 
 /** Sentinel for "build a note type out of these columns". */
 const NEW_TYPE = '__new__'
+
+/** Headers that annotate a neighbouring column rather than stand on their own. */
+const ANNOTATION = /^(pinyin|hanyu ?pinyin|romaji|romanisation|romanization|reading|readings|pronunciation|furigana|jyutping|zhuyin|bopomofo|transliteration|ipa)$/i
+
+/** Headers that name a section of the deck rather than card content. */
+const SECTION_HEADER = /^(week|month|unit|lesson|chapter|section|term|topic|set|day)\b/i
 
 const DELIMITERS = [
   { value: ',', label: 'Comma' },
@@ -109,16 +117,27 @@ export function CsvImport({ go }: { go: Go }) {
 
       if (wantsNewType) {
         // First column asks, the rest answer - the shape of nearly every deck.
-        const guess = Array.from({ length: width }, (_, i) =>
+        const guess: string[] = Array.from({ length: width }, (_, i) =>
           i === tagsIndex ? TAGS : i === 0 ? QUESTION : ANSWER,
         )
+        // A column named for a week or unit is a section of the deck, not
+        // something to show on a card.
+        for (let i = 0; i < width; i++) {
+          if (guess[i] !== TAGS && SECTION_HEADER.test((names[i] ?? '').trim())) guess[i] = SECTION
+        }
+        // An annotation follows the column it annotates: Pinyin sits with the
+        // Chinese, not on the back by default.
+        for (let i = 1; i < width; i++) {
+          if (guess[i] === TAGS || guess[i] === SECTION) continue
+          if (ANNOTATION.test((names[i] ?? '').trim())) guess[i] = guess[i - 1]
+        }
         // Then let a companion column follow its parent: "Chinese audio"
         // belongs on whichever side "Chinese" is on, not automatically the back.
         const labels = names.map((n) => (n ?? '').toLowerCase().trim())
         for (let i = 0; i < width; i++) {
-          if (guess[i] === TAGS || !labels[i]) continue
+          if (guess[i] === TAGS || guess[i] === SECTION || !labels[i]) continue
           for (let j = 0; j < width; j++) {
-            if (i === j || guess[j] === TAGS || labels[j].length < 2) continue
+            if (i === j || guess[j] === TAGS || guess[j] === SECTION || labels[j].length < 2) continue
             if (labels[i] !== labels[j] && labels[i].includes(labels[j])) {
               guess[i] = guess[j]
               break
@@ -150,6 +169,7 @@ export function CsvImport({ go }: { go: Go }) {
     : (type?.fields.map((_, f) => roles.findIndex((r) => roleFieldIndex(r) === f)) ?? [])
 
   const tagColumns = roles.flatMap((r, i) => (r === TAGS ? [i] : []))
+  const sectionColumns = roles.flatMap((r, i) => (r === SECTION ? [i] : []))
   const ready = columnForField.some((c) => c >= 0) && dataRows.length > 0
 
   const columnLabel = (i: number) => headerRow?.[i]?.trim() || `Column ${i + 1}`
@@ -160,6 +180,18 @@ export function CsvImport({ go }: { go: Go }) {
   }
 
   /** What a cell will look like once imported, for the preview table. */
+  const sectionPreview = useMemo(() => {
+    if (!sectionColumns.length) return []
+    const seen = new Set<string>()
+    for (const row of dataRows) {
+      for (const i of sectionColumns) {
+        const tag = toTag(row[i] ?? '')
+        if (tag) seen.add(tag)
+      }
+    }
+    return [...seen].sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+  }, [dataRows, sectionColumns])
+
   const previewCell = (value: string | undefined) => {
     const names = cellMediaNames(value ?? '')
     const hit = names.find((n) => index.has(n.toLowerCase()))
@@ -252,11 +284,13 @@ export function CsvImport({ go }: { go: Go }) {
         }
         if (key) existing.add(key)
         const rowTags = tagColumns.flatMap((i) => (row[i] ?? '').split(/[\s,]+/)).filter(Boolean)
+        // A section cell is one tag, whitespace and all: "Week 3" -> "Week-3".
+        const sectionTags = sectionColumns.map((i) => toTag(row[i] ?? '')).filter(Boolean)
         inputs.push({
           deckId,
           notetypeId: useTypeId,
           fields,
-          tags: [...new Set([...fileTags, ...rowTags])],
+          tags: [...new Set([...fileTags, ...rowTags, ...sectionTags])],
         })
       }
 
@@ -424,6 +458,7 @@ export function CsvImport({ go }: { go: Go }) {
                               </option>
                             ))
                           )}
+                          <option value={SECTION}>Section (week / unit)</option>
                           <option value={TAGS}>Tags</option>
                           <option value={IGNORE}>Ignore</option>
                         </select>
@@ -485,16 +520,17 @@ export function CsvImport({ go }: { go: Go }) {
                     onChange={(e) => {
                       const id = e.target.value
                       setNotetypeId(id)
+                      const keep = (r: string) => r === TAGS || r === SECTION
                       if (id === NEW_TYPE) {
                         setRoles((current) =>
-                          current.map((r, i) => (r === TAGS ? TAGS : i === 0 ? QUESTION : ANSWER)),
+                          current.map((r, i) => (keep(r) ? r : i === 0 ? QUESTION : ANSWER)),
                         )
                       } else {
                         const count = notetype(id).fields.length
                         let next = 0
                         setRoles((current) =>
                           current.map((r) =>
-                            r === TAGS ? TAGS : next < count ? fieldRole(next++) : IGNORE,
+                            keep(r) ? r : next < count ? fieldRole(next++) : IGNORE,
                           ),
                         )
                       }
@@ -520,6 +556,14 @@ export function CsvImport({ go }: { go: Go }) {
                   </label>
                 )}
               </div>
+
+              {sectionPreview.length > 0 && (
+                <div className="tiny muted">
+                  {sectionPreview.length} section{sectionPreview.length === 1 ? '' : 's'} found:{' '}
+                  {sectionPreview.slice(0, 6).join(', ')}
+                  {sectionPreview.length > 6 ? '…' : ''}. You can study one at a time from the deck.
+                </div>
+              )}
 
               {creatingType && ready && (
                 <div className="tiny muted">

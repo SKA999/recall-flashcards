@@ -12,7 +12,7 @@ import { Stats } from './ui/Stats'
 export type View =
   | { name: 'decks' }
   | { name: 'deck'; deckId: string }
-  | { name: 'review'; deckId: string }
+  | { name: 'review'; deckId: string; tag?: string }
   | { name: 'stats'; deckId?: string }
   | { name: 'editor'; deckId: string; noteId?: string }
   | { name: 'settings'; deckId: string }
@@ -35,7 +35,7 @@ export function App() {
     case 'deck':
       return <DeckView deckId={view.deckId} go={setView} />
     case 'review':
-      return <Review deckId={view.deckId} go={setView} />
+      return <Review deckId={view.deckId} tag={view.tag} go={setView} />
     case 'stats':
       return <Stats deckId={view.deckId} go={setView} />
     case 'editor':

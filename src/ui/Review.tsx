@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Go } from '../App'
-import { faces, firstFieldWithMedia } from '../core/notes'
+import { faces, firstFieldWithMedia, hasTag } from '../core/notes'
 import { buildQueue, previewIntervals } from '../core/scheduler'
 import { Rating } from '../core/types'
 import type { Card } from '../core/types'
@@ -17,7 +17,7 @@ const RATINGS: { rating: Rating; label: string; key: string }[] = [
 /** How far ahead a learning card may be pulled forward when nothing else is due. */
 const STUDY_AHEAD_MS = 20 * 60_000
 
-export function Review({ deckId, go }: { deckId: string; go: Go }) {
+export function Review({ deckId, tag, go }: { deckId: string; tag?: string; go: Go }) {
   const { decks, notes, cards, counterFor, answerCard, undoAnswer, canUndo, notetype } = useApp()
   const deck = decks.find((d) => d.id === deckId)
 
@@ -30,7 +30,15 @@ export function Review({ deckId, go }: { deckId: string; go: Go }) {
   /** Show the next card already revealed — set by undo, consumed on card change. */
   const revealNext = useRef(false)
 
-  const deckCards = useMemo(() => cards.filter((c) => c.deckId === deckId), [cards, deckId])
+  const deckCards = useMemo(() => {
+    const own = cards.filter((c) => c.deckId === deckId)
+    if (!tag) return own
+    // Studying a section: only cards whose note carries that tag.
+    const inSection = new Set(
+      notes.filter((n) => n.deckId === deckId && hasTag(n.tags, tag)).map((n) => n.id),
+    )
+    return own.filter((c) => inSection.has(c.noteId))
+  }, [cards, notes, deckId, tag])
 
   const queue = useMemo(() => {
     if (!deck) return null
@@ -145,6 +153,7 @@ export function Review({ deckId, go }: { deckId: string; go: Go }) {
       <div className="app">
         <Header
           deck={deck.name}
+          section={tag}
           go={go}
           deckId={deckId}
           done={done}
@@ -192,6 +201,7 @@ export function Review({ deckId, go }: { deckId: string; go: Go }) {
     <div className="app">
       <Header
         deck={deck.name}
+        section={tag}
         go={go}
         deckId={deckId}
         done={done}
@@ -246,6 +256,7 @@ export function Review({ deckId, go }: { deckId: string; go: Go }) {
 
 function Header({
   deck,
+  section,
   go,
   deckId,
   done,
@@ -255,6 +266,7 @@ function Header({
   onUndo,
 }: {
   deck: string
+  section?: string
   go: Go
   deckId: string
   done: number
@@ -278,8 +290,13 @@ function Header({
           {done} done · {remaining} left
         </span>
       </header>
-      <div className="progress" style={{ marginBottom: 12 }}>
-        <div style={{ width: `${Math.round(progress * 100)}%` }} />
+      {/* The section sits with the progress bar, not in the header: on a phone
+          it would otherwise squeeze the deck name down to a letter. */}
+      <div className="row" style={{ gap: 10, marginBottom: 12 }}>
+        {section && <span className="pill">{section}</span>}
+        <div className="progress grow">
+          <div style={{ width: `${Math.round(progress * 100)}%` }} />
+        </div>
       </div>
     </>
   )

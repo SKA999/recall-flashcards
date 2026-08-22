@@ -73,6 +73,32 @@ export function faces(note: Note, notetype: Notetype, ordinal: number): CardFace
   return { question: pick(template.question), answer: pick(template.answer) }
 }
 
+/**
+ * Turn a label into a single tag. Tags cannot contain spaces - Anki splits on
+ * them, which is how "3B-Week 1" becomes two useless tags - so a section name
+ * is joined up rather than left to break apart.
+ */
+export function toTag(label: string): string {
+  return label.trim().replace(/\s+/g, '-')
+}
+
+/** Case-insensitive tag match, so "Week-1" and "week-1" are the same section. */
+export function hasTag(tags: string[], tag: string): boolean {
+  const wanted = tag.toLowerCase()
+  return tags.some((t) => t.toLowerCase() === wanted)
+}
+
+/** Every tag used across these notes, with how many notes carry each. */
+export function tagCounts(notes: { tags: string[] }[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  for (const note of notes) {
+    for (const tag of new Set(note.tags.map((t) => t.trim()).filter(Boolean))) {
+      counts.set(tag, (counts.get(tag) ?? 0) + 1)
+    }
+  }
+  return counts
+}
+
 /** The field a note is identified by in lists and duplicate checks. */
 export function sortField(note: Note): string {
   return note.fields.find((f) => f.trim() !== '') ?? ''
