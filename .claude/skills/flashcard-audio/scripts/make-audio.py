@@ -132,10 +132,9 @@ def speak(text: str, voice: str, rate: int, path: str, fmt: str) -> float:
         seconds = duration_of(raw)
         if seconds < MIN_SPEECH_SECONDS:
             # A voice that cannot read the script returns near-silence rather
-            # than failing, so this is the only reliable way to catch it.
-            die(f'{voice!r} produced {seconds:.2f}s of silence for {text!r}.\n'
-                f'       That voice almost certainly cannot read this script. '
-                f'Choose one that can (say -v \'?\').')
+            # than failing. Report it and move on; the caller decides whether
+            # a run is failing wholesale or just tripping over one odd cell.
+            return 0.0
         if subprocess.run(encode, capture_output=True).returncode != 0:
             die(f'could not encode {path}')
         return seconds
@@ -258,6 +257,12 @@ def main() -> None:
     os.makedirs(audio_dir, exist_ok=True)
 
     made, reused, skipped = 0, 0, 0
+    silent: list[tuple[str, str]] = []
+    mismatched: list[tuple[str, str]] = []
+    # Only what the table actually points at goes into the bundle: a folder
+    # shared between decks, or left over from an earlier edit, would otherwise
+    # pad every zip with clips nothing references.
+    used: set[str] = set()
     for row in rows[1:]:
         if not any(cell.strip() for cell in row):
             continue
@@ -269,30 +274,58 @@ def main() -> None:
             if row[audio_i].strip() and not args.force:
                 skipped += 1
                 continue
+            # The column's script was judged from a sample, so a single cell
+            # in another script can still slip through - a Chinese character
+            # sitting in the English column, say.
+            cell_is_cjk = bool(CJK.search(text))
+            voice_is_cjk = voices[voice].startswith(('zh', 'ja', 'ko'))
+            if cell_is_cjk != voice_is_cjk:
+                mismatched.append((text, voice))
+                continue
+
             name = stable_name(text, voice, args.format)
             path = os.path.join(audio_dir, name)
             if os.path.exists(path):
                 reused += 1
             else:
                 print(f'  [{made + 1}] {voice:<10} {text}', flush=True)
-                speak(text, voice, args.rate, path, args.format)
+                if speak(text, voice, args.rate, path, args.format) == 0.0:
+                    silent.append((text, voice))
+                    continue
                 made += 1
             row[audio_i] = f'{args.audio_dir}/{name}'
+            used.add(name)
 
     out_csv = os.path.join(out_dir, os.path.basename(args.csv))
     with open(out_csv, 'w', newline='', encoding='utf-8') as f:
         csv.writer(f).writerows(rows)
 
+    # Wholesale silence means the wrong voice, which is worth stopping for;
+    # a handful means odd cells, which is worth reporting and continuing.
+    attempted = made + len(silent)
+    if silent and attempted and len(silent) / attempted > 0.2:
+        die(f'{len(silent)} of {attempted} clips came out silent. That voice almost '
+            f'certainly cannot read this text — check --voice against `say -v \'?\'`.')
+
     print(f'\n{made} clips recorded, {reused} already on disk, {skipped} cells left as they were')
+    for label, items in (('in another script', mismatched), ('silent, so skipped', silent)):
+        if not items:
+            continue
+        print(f'{len(items)} cell{"" if len(items) == 1 else "s"} {label}:')
+        for text, voice in items[:5]:
+            print(f'    {text!r} with {voice}')
+        if len(items) > 5:
+            print(f'    ... and {len(items) - 5} more')
     print(f'table written to {out_csv}')
 
     if args.zip:
         with zipfile.ZipFile(args.zip, 'w', zipfile.ZIP_DEFLATED) as z:
             z.write(out_csv, os.path.basename(out_csv))
-            for name in sorted(os.listdir(audio_dir)):
+            for name in sorted(used):
                 z.write(os.path.join(audio_dir, name), f'{args.audio_dir}/{name}')
         size = os.path.getsize(args.zip)
-        print(f'bundle written to {args.zip} ({size // 1024} KB) — import this directly')
+        print(f'bundle written to {args.zip} ({size // 1024} KB, {len(used)} clips) '
+              f'— import this directly')
 
 
 if __name__ == '__main__':
