@@ -48,6 +48,29 @@ describe('example-cards.csv', () => {
   })
 })
 
+describe('example-cards-chinese.csv', () => {
+  const parsed = parseDelimited(read('example-cards-chinese.csv'))
+
+  it('picks the ASCII comma, not the full-width one inside a field', () => {
+    expect(parsed.delimiter).toBe(',')
+    expect(parsed.raggedRows).toBe(0)
+  })
+
+  it('keeps Chinese characters intact', () => {
+    expect(parsed.rows[1]).toEqual(['\u4f60\u597d', 'hello', 'greeting'])
+  })
+
+  it('keeps a full-width comma inside a quoted field', () => {
+    const row = parsed.rows.find((r) => r[0].includes('\u6211\u5f88\u597d'))!
+    expect(row[0]).toBe('\u6211\u5f88\u597d\uff0c\u8c22\u8c22')
+    expect(row[1]).toBe("I'm fine, thank you")
+  })
+
+  it('yields six cards after the header', () => {
+    expect(parsed.rows.length - 1).toBe(6)
+  })
+})
+
 describe('example-cards-anki.txt', () => {
   const parsed = parseDelimited(read('example-cards-anki.txt'))
 

@@ -34,7 +34,7 @@ export function FieldView({ text, autoPlay }: { text: string; autoPlay?: boolean
             {part.value}
           </span>
         ) : (
-          <Media key={i} id={part.id} autoPlay={autoPlay} />
+          <Media key={part.id} id={part.id} autoPlay={autoPlay} />
         ),
       )}
     </div>

@@ -201,7 +201,9 @@ export function Review({ deckId, go }: { deckId: string; go: Go }) {
         <div className="qa">
           <div className="side">
             {question.map((text, i) => (
-              <FieldView key={i} text={text} />
+              // Listening cards put the sound on the question side, so it
+              // plays on its own rather than needing a click every review.
+              <FieldView key={i} text={text} autoPlay={i === 0} />
             ))}
           </div>
           {revealed && (

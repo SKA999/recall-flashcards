@@ -4,6 +4,8 @@
 import { useEffect, useState } from 'react'
 import { idbStore } from './idb'
 
+export { mediaKind } from '../core/mime'
+
 export interface ResolvedMedia {
   id: string
   url: string
@@ -61,9 +63,4 @@ export function useMedia(id: string): ResolvedMedia | undefined {
   return item
 }
 
-export function mediaKind(mime: string): 'image' | 'audio' | 'video' | 'other' {
-  if (mime.startsWith('image/')) return 'image'
-  if (mime.startsWith('audio/')) return 'audio'
-  if (mime.startsWith('video/')) return 'video'
-  return 'other'
-}
+

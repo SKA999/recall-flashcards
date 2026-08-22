@@ -13,6 +13,7 @@ import {
 import { newId } from '../core/ids'
 import { reconcileCards } from '../core/notes'
 import { answer as applyAnswer, dayKey, DEFAULT_CONFIG } from '../core/scheduler'
+import { guessMime } from '../core/mime'
 import { BASIC_ID, BUILTIN_NOTETYPES } from '../core/notetypes'
 import type {
   Card,
@@ -384,7 +385,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       id: newId(),
       deckId,
       name: file.name,
-      mime: file.type || 'application/octet-stream',
+      mime: guessMime(file.name, file.type),
       blob: file,
       created: Date.now(),
       updated: Date.now(),

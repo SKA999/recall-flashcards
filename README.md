@@ -31,6 +31,10 @@ devices, and the only protection against clearing your browser data.
 
 ## Importing
 
+Non-Latin scripts are fine throughout — Chinese, Japanese and Korean text works
+in fields, deck names, search, CSV import and backups. `examples/` includes a
+Chinese deck and two audio clips to try it with.
+
 **CSV / TSV** works today. Import from the deck list, pick a file, map the
 columns, and preview before committing. The parser is RFC 4180 — quoted fields
 keep their commas, newlines and doubled quotes — and it reads Anki's own text
@@ -55,9 +59,11 @@ so an imported deck can't inject markup.
   each card asks and answers. Built in: Basic, Basic (and reversed), and Cloze,
   which makes one card per `{{c1::…}}` deletion. Editing a note reconciles its
   cards without disturbing the scheduling of the ones that survive.
-- **Media** — images, audio and video attach to either field, stored as blobs in
-  IndexedDB and referenced by a `{{media:<id>}}` token. Audio and video on the
-  answer side autoplay on reveal.
+- **Media** — images, audio and video attach to any field, stored as blobs in
+  IndexedDB and referenced by a `{{media:<id>}}` token. Sound plays on its own
+  on both sides: on the question for listening cards, on the answer on reveal.
+  A file whose type the picker leaves blank is identified by its extension, so
+  `.opus`, `.flac`, `.m4a` and friends still get a player.
 - **Review** — learning steps, FSRS intervals, four-button grading with the real
   next interval shown on each button, keyboard shortcuts (space reveals, 1–4
   grade, z undoes), daily new/review limits, study-ahead when the queue drains.
