@@ -26,17 +26,23 @@ function Media({ id, autoPlay }: { id: string; autoPlay?: boolean }) {
  */
 export function FieldView({ text, autoPlay }: { text: string; autoPlay?: boolean }) {
   const parts = parseField(text)
+  // Only the first sound in a field plays itself; a field with two would
+  // otherwise start both at once.
+  let played = false
   return (
     <div className="media">
-      {parts.map((part, i) =>
-        part.type === 'text' ? (
-          <span key={i} style={{ whiteSpace: 'pre-wrap' }}>
-            {part.value}
-          </span>
-        ) : (
-          <Media key={part.id} id={part.id} autoPlay={autoPlay} />
-        ),
-      )}
+      {parts.map((part, i) => {
+        if (part.type === 'text') {
+          return (
+            <span key={i} style={{ whiteSpace: 'pre-wrap' }}>
+              {part.value}
+            </span>
+          )
+        }
+        const auto = Boolean(autoPlay) && !played
+        played = true
+        return <Media key={part.id} id={part.id} autoPlay={auto} />
+      })}
     </div>
   )
 }

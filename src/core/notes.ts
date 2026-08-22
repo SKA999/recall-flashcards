@@ -96,6 +96,16 @@ export function parseField(text: string): FieldPart[] {
   return parts
 }
 
+/**
+ * Which field on a side holds the first media, or -1 for none.
+ *
+ * Sound is usually a field of its own beside the text it belongs to, so
+ * "play the first field" is not the same as "play the first sound".
+ */
+export function firstFieldWithMedia(fields: string[]): number {
+  return fields.findIndex((field) => mediaIdsIn(field).length > 0)
+}
+
 export function mediaIdsIn(text: string): string[] {
   return [...text.matchAll(MEDIA_TOKEN)].map((m) => m[1])
 }

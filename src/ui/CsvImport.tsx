@@ -1,49 +1,57 @@
 import { useMemo, useRef, useState } from 'react'
 import type { Go } from '../App'
+import { newId } from '../core/ids'
+import { plainText } from '../core/notes'
+import type { Notetype } from '../core/types'
+import { cellMediaNames, convertCell, mediaIndex, readBundle } from '../import/bundle'
+import type { Bundle } from '../import/bundle'
 import { htmlToText, looksLikeHeader, parseDelimited } from '../import/csv'
 import type { ParsedDelimited } from '../import/csv'
-import { plainText } from '../core/notes'
 import { useApp } from '../data/store'
 
 /**
- * What each column becomes: a field of the chosen note type (`f0`, `f1`, …),
- * the note's tags, or nothing.
+ * What a column becomes. With an existing note type these are its field
+ * indexes; with a new one they are simply which side of the card the column
+ * belongs on.
  */
-type Role = string
 const IGNORE = 'ignore'
 const TAGS = 'tags'
+const QUESTION = 'question'
+const ANSWER = 'answer'
 const fieldRole = (index: number) => `f${index}`
-const roleFieldIndex = (role: Role) => (role.startsWith('f') ? Number(role.slice(1)) : -1)
+const roleFieldIndex = (role: string) => (role.startsWith('f') ? Number(role.slice(1)) : -1)
 
-const DELIMITERS: { value: string; label: string }[] = [
+/** Sentinel for "build a note type out of these columns". */
+const NEW_TYPE = '__new__'
+
+const DELIMITERS = [
   { value: ',', label: 'Comma' },
   { value: '\t', label: 'Tab' },
   { value: ';', label: 'Semicolon' },
   { value: '|', label: 'Pipe' },
 ]
 
-interface Loaded {
-  filename: string
-  text: string
-}
-
 interface Report {
   added: number
   skippedDuplicate: number
   skippedEmpty: number
   deckName: string
+  mediaAdded: number
+  missingMedia: string[]
 }
 
 export function CsvImport({ go }: { go: Go }) {
-  const { decks, notes, notetypes, notetype, createDeck, addNotes } = useApp()
+  const { decks, notes, notetypes, notetype, createDeck, addNotes, addMedia, saveNotetype } = useApp()
   const fileRef = useRef<HTMLInputElement>(null)
 
-  const [loaded, setLoaded] = useState<Loaded | null>(null)
+  const [bundle, setBundle] = useState<Bundle | null>(null)
+  const [sourceName, setSourceName] = useState('')
   const [delimiter, setDelimiter] = useState<string | undefined>(undefined)
   const [hasHeader, setHasHeader] = useState(true)
-  const [roles, setRoles] = useState<Role[]>([])
+  const [roles, setRoles] = useState<string[]>([])
   const [notetypeId, setNotetypeId] = useState('basic')
-  const [target, setTarget] = useState<string>('new')
+  const [newTypeName, setNewTypeName] = useState('')
+  const [target, setTarget] = useState('new')
   const [newDeckName, setNewDeckName] = useState('')
   const [stripHtml, setStripHtml] = useState(false)
   const [skipDuplicates, setSkipDuplicates] = useState(true)
@@ -51,16 +59,20 @@ export function CsvImport({ go }: { go: Go }) {
   const [report, setReport] = useState<Report | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  const creatingType = notetypeId === NEW_TYPE
+  const type = creatingType ? null : notetype(notetypeId)
+
   const parsed: ParsedDelimited | null = useMemo(() => {
-    if (!loaded) return null
+    if (!bundle) return null
     try {
-      return parseDelimited(loaded.text, { delimiter })
+      return parseDelimited(bundle.table.text, { delimiter })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'could not read that file')
       return null
     }
-  }, [loaded, delimiter])
+  }, [bundle, delimiter])
 
+  const index = useMemo(() => (bundle ? mediaIndex(bundle.media) : new Map()), [bundle])
   const columnCount = parsed?.rows[0]?.length ?? 0
   const headerRow = parsed && hasHeader ? parsed.rows[0] : null
   const dataRows = useMemo(
@@ -68,99 +80,195 @@ export function CsvImport({ go }: { go: Go }) {
     [parsed, hasHeader],
   )
 
-  const load = async (file: File) => {
+  const load = async (files: File[]) => {
     setError(null)
     setReport(null)
-    const text = await file.text()
-    const first = parseDelimited(text)
-    setLoaded({ filename: file.name, text })
-    setDelimiter(undefined)
-    setHasHeader(first.meta.columns ? false : looksLikeHeader(first.rows))
-    setStripHtml(first.meta.html ?? false)
-    if (first.meta.deck) setNewDeckName(first.meta.deck)
+    try {
+      const read = await readBundle(files)
+      const first = parseDelimited(read.table.text)
+      setBundle(read)
+      setSourceName(files.length === 1 ? files[0].name : `${files.length} files`)
+      setDelimiter(undefined)
+      setHasHeader(first.meta.columns ? false : looksLikeHeader(first.rows))
+      setStripHtml(first.meta.html ?? false)
+      if (first.meta.deck) setNewDeckName(first.meta.deck)
 
-    // Default mapping: first column asks, second answers, a column literally
-    // called "tags" carries tags, everything else is ignored.
-    const width = first.rows[0]?.length ?? 0
-    const names = first.meta.columns ?? (looksLikeHeader(first.rows) ? first.rows[0] : [])
-    const tagsIndex = first.meta.tagsColumn
-      ? first.meta.tagsColumn - 1
-      : names.findIndex((n) => n.toLowerCase().trim() === 'tags')
-    // Columns line up with the note type's fields in order; a column called
-    // "tags" carries tags instead.
-    const fieldCount = notetype(notetypeId).fields.length
-    let nextField = 0
-    setRoles(
-      Array.from({ length: width }, (_, i): Role => {
-        if (i === tagsIndex) return TAGS
-        return nextField < fieldCount ? fieldRole(nextField++) : IGNORE
-      }),
-    )
+      const width = first.rows[0]?.length ?? 0
+      const names = first.meta.columns ?? (looksLikeHeader(first.rows) ? first.rows[0] : [])
+      const tagsIndex = first.meta.tagsColumn
+        ? first.meta.tagsColumn - 1
+        : names.findIndex((n) => n.toLowerCase().trim() === 'tags')
+
+      // A bundle with media is almost always a multi-column deck, so default to
+      // building a note type from the columns rather than squeezing into Basic.
+      const wantsNewType = read.media.length > 0 || width > 2
+      setNotetypeId(wantsNewType ? NEW_TYPE : 'basic')
+      if (wantsNewType && !newTypeName) {
+        setNewTypeName(read.table.name.replace(/\.[^.]+$/, '') || 'Imported')
+      }
+
+      if (wantsNewType) {
+        // First column asks, the rest answer - the shape of nearly every deck.
+        const guess = Array.from({ length: width }, (_, i) =>
+          i === tagsIndex ? TAGS : i === 0 ? QUESTION : ANSWER,
+        )
+        // Then let a companion column follow its parent: "Chinese audio"
+        // belongs on whichever side "Chinese" is on, not automatically the back.
+        const labels = names.map((n) => (n ?? '').toLowerCase().trim())
+        for (let i = 0; i < width; i++) {
+          if (guess[i] === TAGS || !labels[i]) continue
+          for (let j = 0; j < width; j++) {
+            if (i === j || guess[j] === TAGS || labels[j].length < 2) continue
+            if (labels[i] !== labels[j] && labels[i].includes(labels[j])) {
+              guess[i] = guess[j]
+              break
+            }
+          }
+        }
+        setRoles(guess)
+      } else {
+        const fieldCount = notetype('basic').fields.length
+        let next = 0
+        setRoles(
+          Array.from({ length: width }, (_, i) =>
+            i === tagsIndex ? TAGS : next < fieldCount ? fieldRole(next++) : IGNORE,
+          ),
+        )
+      }
+    } catch (e) {
+      setBundle(null)
+      setError(e instanceof Error ? e.message : 'could not read that file')
+    }
   }
 
-  const setRole = (index: number, role: Role) =>
-    setRoles((current) => current.map((r, i) => (i === index ? role : r)))
+  const setRole = (i: number, role: string) =>
+    setRoles((current) => current.map((r, at) => (at === i ? role : r)))
 
-  const type = notetype(notetypeId)
-  /** For each field of the note type, which column supplies it. */
-  const columnForField = type.fields.map((_, fieldIndex) =>
-    roles.findIndex((r) => roleFieldIndex(r) === fieldIndex),
-  )
-  const tagIndexes = roles.flatMap((r, i) => (r === TAGS ? [i] : []))
+  /** Column order for the fields of whichever note type we end up using. */
+  const columnForField: number[] = creatingType
+    ? roles.flatMap((r, i) => (r === QUESTION || r === ANSWER ? [i] : []))
+    : (type?.fields.map((_, f) => roles.findIndex((r) => roleFieldIndex(r) === f)) ?? [])
+
+  const tagColumns = roles.flatMap((r, i) => (r === TAGS ? [i] : []))
   const ready = columnForField.some((c) => c >= 0) && dataRows.length > 0
-  const targetName = target === 'new' ? newDeckName.trim() : decks.find((d) => d.id === target)?.name
+
+  const columnLabel = (i: number) => headerRow?.[i]?.trim() || `Column ${i + 1}`
 
   const clean = (value: string | undefined) => {
     const raw = value ?? ''
     return stripHtml ? htmlToText(raw) : raw.trim()
   }
 
+  /** What a cell will look like once imported, for the preview table. */
+  const previewCell = (value: string | undefined) => {
+    const names = cellMediaNames(value ?? '')
+    const hit = names.find((n) => index.has(n.toLowerCase()))
+    if (hit) return `♪ ${hit}`
+    return clean(value).slice(0, 60)
+  }
+
   const runImport = async () => {
-    if (!ready || busy) return
+    if (!ready || busy || !parsed) return
     setBusy(true)
     setError(null)
     try {
       let deckId = target
-      let deckName = targetName ?? 'Imported'
+      let deckName = decks.find((d) => d.id === target)?.name ?? newDeckName.trim()
       if (target === 'new') {
         const deck = await createDeck(newDeckName.trim() || 'Imported deck')
         deckId = deck.id
         deckName = deck.name
       }
 
+      // Build the note type first: everything below indexes into its fields.
+      let useTypeId = notetypeId
+      if (creatingType) {
+        const questionFields: number[] = []
+        const answerFields: number[] = []
+        columnForField.forEach((column, fieldIndex) => {
+          if (roles[column] === QUESTION) questionFields.push(fieldIndex)
+          else answerFields.push(fieldIndex)
+        })
+        const created: Notetype = {
+          id: newId(),
+          name: newTypeName.trim() || 'Imported note type',
+          fields: columnForField.map((c) => columnLabel(c)),
+          templates: [
+            {
+              name: 'Card 1',
+              question: questionFields.length ? questionFields : [0],
+              answer: answerFields.length ? answerFields : [1],
+            },
+          ],
+          isCloze: false,
+          created: Date.now(),
+          updated: Date.now(),
+        }
+        await saveNotetype(created)
+        useTypeId = created.id
+      }
+
+      // Store only the media the table actually refers to.
+      const wanted = new Set<string>()
+      for (const row of dataRows) {
+        for (const cell of row) {
+          for (const name of cellMediaNames(cell ?? '')) {
+            const key = name.toLowerCase()
+            if (index.has(key)) wanted.add(key)
+          }
+        }
+      }
+      const idByName = new Map<string, string>()
+      for (const key of wanted) {
+        const item = index.get(key)!
+        const file = new File([item.bytes as BlobPart], item.name, { type: item.mime })
+        idByName.set(key, await addMedia(deckId, file))
+      }
+      const resolve = (name: string) => idByName.get(name.trim().toLowerCase())
+
       const existing = new Set(
-        notes
-          .filter((n) => n.deckId === deckId)
-          .map((n) => plainText(n.fields[0] ?? '').toLowerCase()),
+        notes.filter((n) => n.deckId === deckId).map((n) => plainText(n.fields[0] ?? '').toLowerCase()),
       )
-      const fileTags = parsed?.meta.tags ?? []
+      const fileTags = parsed.meta.tags ?? []
+      const missingMedia = new Set<string>()
       const inputs = []
       let skippedDuplicate = 0
       let skippedEmpty = 0
 
       for (const row of dataRows) {
-        const fields = columnForField.map((column) => (column >= 0 ? clean(row[column]) : ''))
+        const fields = columnForField.map((column) => {
+          if (column < 0) return ''
+          const converted = convertCell(row[column] ?? '', resolve, missingMedia)
+          return converted.usedMedia ? converted.text : clean(converted.text)
+        })
         if (fields.every((f) => f === '')) {
           skippedEmpty++
           continue
         }
-        const key = fields[0].toLowerCase()
+        const key = plainText(fields[0]).toLowerCase()
         if (skipDuplicates && key && existing.has(key)) {
           skippedDuplicate++
           continue
         }
-        existing.add(key)
-        const rowTags = tagIndexes.flatMap((i) => (row[i] ?? '').split(/[\s,]+/)).filter(Boolean)
+        if (key) existing.add(key)
+        const rowTags = tagColumns.flatMap((i) => (row[i] ?? '').split(/[\s,]+/)).filter(Boolean)
         inputs.push({
           deckId,
-          notetypeId,
+          notetypeId: useTypeId,
           fields,
           tags: [...new Set([...fileTags, ...rowTags])],
         })
       }
 
       const added = await addNotes(inputs)
-      setReport({ added, skippedDuplicate, skippedEmpty, deckName })
+      setReport({
+        added,
+        skippedDuplicate,
+        skippedEmpty,
+        deckName,
+        mediaAdded: idByName.size,
+        missingMedia: [...missingMedia],
+      })
     } catch (e) {
       setError(e instanceof Error ? e.message : 'import failed')
     } finally {
@@ -168,14 +276,18 @@ export function CsvImport({ go }: { go: Go }) {
     }
   }
 
+  const back = (
+    <button className="btn ghost back" onClick={() => go({ name: 'decks' })}>
+      <span aria-hidden="true">←</span>
+      <span className="name">Decks</span>
+    </button>
+  )
+
   if (report) {
     return (
       <div className="app">
         <header className="topbar">
-          <button className="btn ghost back" onClick={() => go({ name: 'decks' })}>
-            <span aria-hidden="true">←</span>
-            <span className="name">Decks</span>
-          </button>
+          {back}
           <div className="spacer" />
         </header>
         <div className="card chart">
@@ -184,6 +296,11 @@ export function CsvImport({ go }: { go: Go }) {
             <div style={{ fontSize: 22, fontWeight: 650 }}>
               {report.added} card{report.added === 1 ? '' : 's'} added to {report.deckName}
             </div>
+            {report.mediaAdded > 0 && (
+              <div className="tiny muted">
+                {report.mediaAdded} media file{report.mediaAdded === 1 ? '' : 's'} imported with them.
+              </div>
+            )}
             {report.skippedDuplicate > 0 && (
               <div className="tiny muted">
                 {report.skippedDuplicate} skipped as duplicates of cards already in the deck.
@@ -191,6 +308,14 @@ export function CsvImport({ go }: { go: Go }) {
             )}
             {report.skippedEmpty > 0 && (
               <div className="tiny muted">{report.skippedEmpty} empty rows skipped.</div>
+            )}
+            {report.missingMedia.length > 0 && (
+              <div className="notice">
+                {report.missingMedia.length} file
+                {report.missingMedia.length === 1 ? ' was' : 's were'} named in the table but not
+                found in the bundle: {report.missingMedia.slice(0, 4).join(', ')}
+                {report.missingMedia.length > 4 ? '…' : ''}
+              </div>
             )}
             <div className="row" style={{ marginTop: 8 }}>
               <button className="btn primary" onClick={() => go({ name: 'decks' })}>
@@ -200,10 +325,10 @@ export function CsvImport({ go }: { go: Go }) {
                 className="btn"
                 onClick={() => {
                   setReport(null)
-                  setLoaded(null)
+                  setBundle(null)
                 }}
               >
-                Import another file
+                Import another
               </button>
             </div>
           </div>
@@ -215,10 +340,7 @@ export function CsvImport({ go }: { go: Go }) {
   return (
     <div className="app">
       <header className="topbar">
-        <button className="btn ghost back" onClick={() => go({ name: 'decks' })}>
-          <span aria-hidden="true">←</span>
-          <span className="name">Decks</span>
-        </button>
+        {back}
         <div className="grow">
           <h1>Import cards</h1>
         </div>
@@ -227,27 +349,33 @@ export function CsvImport({ go }: { go: Go }) {
       <div className="card stack" style={{ padding: 16 }}>
         <div className="row wrap">
           <button className="btn primary" onClick={() => fileRef.current?.click()}>
-            Choose a file
+            Choose files
           </button>
           <span className="tiny muted grow">
-            {loaded ? loaded.filename : 'CSV, TSV or a text file exported from Anki'}
+            {bundle ? sourceName : 'A CSV or TSV on its own, or a zip holding one plus its media'}
           </span>
           <input
             ref={fileRef}
             type="file"
-            accept=".csv,.tsv,.txt,text/csv,text/plain,text/tab-separated-values"
+            multiple
+            accept=".csv,.tsv,.txt,.zip,audio/*,image/*,video/*,text/csv,text/plain,application/zip"
             style={{ display: 'none' }}
             onChange={(e) => {
-              const file = e.target.files?.[0]
-              if (file) void load(file)
+              const files = [...(e.target.files ?? [])]
+              if (files.length) void load(files)
               e.target.value = ''
             }}
           />
         </div>
+        <div className="tiny muted">
+          To bring audio or pictures in, put them beside the table and refer to them by filename —
+          a cell reading <code>ni-hao.mp3</code> becomes that sound. You can select the table and
+          its media together, or zip them up first.
+        </div>
         {error && <div className="notice">{error}</div>}
       </div>
 
-      {parsed && (
+      {parsed && bundle && (
         <>
           <section className="card chart" style={{ marginTop: 16 }}>
             <div className="row wrap">
@@ -256,6 +384,7 @@ export function CsvImport({ go }: { go: Go }) {
                 <div className="tiny muted">
                   {dataRows.length} row{dataRows.length === 1 ? '' : 's'} · {columnCount} column
                   {columnCount === 1 ? '' : 's'}
+                  {bundle.media.length > 0 && ` · ${bundle.media.length} media files alongside`}
                   {parsed.raggedRows > 0 &&
                     ` · ${parsed.raggedRows} row${parsed.raggedRows === 1 ? '' : 's'} with a different column count`}
                 </div>
@@ -283,11 +412,18 @@ export function CsvImport({ go }: { go: Go }) {
                     {Array.from({ length: columnCount }, (_, i) => (
                       <th key={i}>
                         <select value={roles[i] ?? IGNORE} onChange={(e) => setRole(i, e.target.value)}>
-                          {type.fields.map((name, fieldIndex) => (
-                            <option key={fieldIndex} value={fieldRole(fieldIndex)}>
-                              {name}
-                            </option>
-                          ))}
+                          {creatingType ? (
+                            <>
+                              <option value={QUESTION}>Question side</option>
+                              <option value={ANSWER}>Answer side</option>
+                            </>
+                          ) : (
+                            type?.fields.map((name, f) => (
+                              <option key={f} value={fieldRole(f)}>
+                                {name}
+                              </option>
+                            ))
+                          )}
                           <option value={TAGS}>Tags</option>
                           <option value={IGNORE}>Ignore</option>
                         </select>
@@ -301,7 +437,7 @@ export function CsvImport({ go }: { go: Go }) {
                     <tr key={r}>
                       {Array.from({ length: columnCount }, (_, c) => (
                         <td key={c} className={roles[c] === IGNORE ? 'muted' : undefined}>
-                          {clean(row[c]).slice(0, 60) || '—'}
+                          {previewCell(row[c]) || '—'}
                         </td>
                       ))}
                     </tr>
@@ -309,6 +445,11 @@ export function CsvImport({ go }: { go: Go }) {
                 </tbody>
               </table>
             </div>
+            {bundle.media.length > 0 && (
+              <div className="tiny muted" style={{ marginTop: 10 }}>
+                ♪ marks a cell that resolved to a file in the bundle.
+              </div>
+            )}
           </section>
 
           <section className="card chart" style={{ marginTop: 16 }}>
@@ -344,16 +485,22 @@ export function CsvImport({ go }: { go: Go }) {
                     onChange={(e) => {
                       const id = e.target.value
                       setNotetypeId(id)
-                      // Re-map columns onto the new type's fields, in order.
-                      const count = notetype(id).fields.length
-                      let next = 0
-                      setRoles((current) =>
-                        current.map((r) =>
-                          r === TAGS ? TAGS : next < count ? fieldRole(next++) : IGNORE,
-                        ),
-                      )
+                      if (id === NEW_TYPE) {
+                        setRoles((current) =>
+                          current.map((r, i) => (r === TAGS ? TAGS : i === 0 ? QUESTION : ANSWER)),
+                        )
+                      } else {
+                        const count = notetype(id).fields.length
+                        let next = 0
+                        setRoles((current) =>
+                          current.map((r) =>
+                            r === TAGS ? TAGS : next < count ? fieldRole(next++) : IGNORE,
+                          ),
+                        )
+                      }
                     }}
                   >
+                    <option value={NEW_TYPE}>Build one from these columns…</option>
                     {notetypes.map((t) => (
                       <option key={t.id} value={t.id}>
                         {t.name}
@@ -361,7 +508,35 @@ export function CsvImport({ go }: { go: Go }) {
                     ))}
                   </select>
                 </label>
+                {creatingType && (
+                  <label className="field grow">
+                    Note type name
+                    <input
+                      type="text"
+                      value={newTypeName}
+                      placeholder="Imported note type"
+                      onChange={(e) => setNewTypeName(e.target.value)}
+                    />
+                  </label>
+                )}
               </div>
+
+              {creatingType && ready && (
+                <div className="tiny muted">
+                  Each card will ask{' '}
+                  <strong>
+                    {roles
+                      .flatMap((r, i) => (r === QUESTION ? [columnLabel(i)] : []))
+                      .join(' + ') || 'nothing'}
+                  </strong>{' '}
+                  and answer with{' '}
+                  <strong>
+                    {roles.flatMap((r, i) => (r === ANSWER ? [columnLabel(i)] : [])).join(' + ') ||
+                      'nothing'}
+                  </strong>
+                  .
+                </div>
+              )}
 
               <label className="row" style={{ gap: 8 }}>
                 <input
@@ -388,17 +563,17 @@ export function CsvImport({ go }: { go: Go }) {
                   checked={skipDuplicates}
                   onChange={(e) => setSkipDuplicates(e.target.checked)}
                 />
-                <span className="tiny">Skip rows whose front already exists in the deck</span>
+                <span className="tiny">Skip rows whose first field already exists in the deck</span>
               </label>
 
               <div className="row" style={{ marginTop: 4 }}>
                 <button className="btn primary" disabled={!ready || busy} onClick={runImport}>
-                  {busy ? 'Importing…' : `Import ${dataRows.length} row${dataRows.length === 1 ? '' : 's'}`}
+                  {busy
+                    ? 'Importing…'
+                    : `Import ${dataRows.length} row${dataRows.length === 1 ? '' : 's'}`}
                 </button>
                 {!ready && (
-                  <span className="tiny muted">
-                    Map at least one column onto a field to continue.
-                  </span>
+                  <span className="tiny muted">Map at least one column onto a field to continue.</span>
                 )}
               </div>
             </div>

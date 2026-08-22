@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Go } from '../App'
-import { faces } from '../core/notes'
+import { faces, firstFieldWithMedia } from '../core/notes'
 import { buildQueue, previewIntervals } from '../core/scheduler'
 import { Rating } from '../core/types'
 import type { Card } from '../core/types'
@@ -182,6 +182,10 @@ export function Review({ deckId, go }: { deckId: string; go: Go }) {
   }
 
   const { question, answer } = faces(note, notetype(note.notetypeId), card.ordinal)
+  // Sound often sits in its own field next to the text, so the field that
+  // plays is the one holding media, not simply the first.
+  const questionSound = firstFieldWithMedia(question)
+  const answerSound = firstFieldWithMedia(answer)
   const previews = previewIntervals(card, deck.config)
 
   return (
@@ -203,7 +207,7 @@ export function Review({ deckId, go }: { deckId: string; go: Go }) {
             {question.map((text, i) => (
               // Listening cards put the sound on the question side, so it
               // plays on its own rather than needing a click every review.
-              <FieldView key={i} text={text} autoPlay={i === 0} />
+              <FieldView key={i} text={text} autoPlay={i === questionSound} />
             ))}
           </div>
           {revealed && (
@@ -211,7 +215,7 @@ export function Review({ deckId, go }: { deckId: string; go: Go }) {
               <hr />
               <div className="side answer">
                 {answer.map((text, i) => (
-                  <FieldView key={i} text={text} autoPlay={i === 0} />
+                  <FieldView key={i} text={text} autoPlay={i === answerSound} />
                 ))}
               </div>
             </>

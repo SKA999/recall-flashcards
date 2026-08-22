@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { faces, reconcileCards } from '../notes'
+import { faces, firstFieldWithMedia, reconcileCards } from '../notes'
 import {
   BASIC_ID,
   BUILTIN_NOTETYPES,
@@ -153,6 +153,36 @@ describe('what a card asks', () => {
     const n = note(['estrenar', 'to use for the first time', 'Hoy estreno zapatos.'], 'wide')
     expect(faces(n, wide, 0).answer).toEqual(['to use for the first time', 'Hoy estreno zapatos.'])
     expect(faces(n, wide, 1).question).toEqual(['to use for the first time'])
+  })
+})
+
+describe('which field plays its sound', () => {
+  const token = '{{media:abc-123}}'
+
+  it('finds a sound in a field of its own, beside the text', () => {
+    expect(firstFieldWithMedia(['\u5b66\u6821', token])).toBe(1)
+  })
+
+  it('finds a sound sharing a field with text', () => {
+    expect(firstFieldWithMedia([`\u5b66\u6821\n${token}`])).toBe(0)
+  })
+
+  it('picks the first of several', () => {
+    expect(firstFieldWithMedia(['a', token, '{{media:def-456}}'])).toBe(1)
+  })
+
+  it('reports none when the side is all text', () => {
+    expect(firstFieldWithMedia(['\u5b66\u6821', 'school'])).toBe(-1)
+    expect(firstFieldWithMedia([])).toBe(-1)
+  })
+
+  it('is not confused by a cloze marker, which shares the braces', () => {
+    expect(firstFieldWithMedia(['{{c1::word}}'])).toBe(-1)
+  })
+
+  it('gives the same answer when asked twice', () => {
+    const fields = ['a', token]
+    expect(firstFieldWithMedia(fields)).toBe(firstFieldWithMedia(fields))
   })
 })
 

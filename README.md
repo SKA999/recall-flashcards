@@ -35,6 +35,37 @@ Non-Latin scripts are fine throughout — Chinese, Japanese and Korean text work
 in fields, deck names, search, CSV import and backups. `examples/` includes a
 Chinese deck and two audio clips to try it with.
 
+### Bringing media in with your cards
+
+Put the media beside the table and refer to it by filename. Either select the
+table and its files together in the file picker, or zip them up first:
+
+```
+primary-5.zip
+├── cards.csv
+└── audio/
+    ├── xuexiao.wav
+    └── school.wav
+```
+
+```csv
+Chinese,English,Chinese audio,English audio,Tags
+学校,school,audio/xuexiao.wav,audio/school.wav,noun place
+```
+
+A cell holding a filename becomes that sound or picture. Anki's
+`[sound:name.mp3]` and `<img src="name.png">` are understood too, and a
+filename the bundle doesn't contain is reported rather than imported as text.
+
+Columns become the fields of a note type built on import, and each column is
+marked as belonging to the question or the answer side. A column named after
+another — "Chinese audio" beside "Chinese" — follows that column's side, so the
+default for the layout above asks *Chinese + Chinese audio* and answers with
+*English + English audio*. Sound plays by itself on both sides.
+
+`examples/` has `import-template.csv` to fill in and `primary-5-example.zip` to
+try immediately.
+
 **CSV / TSV** works today. Import from the deck list, pick a file, map the
 columns, and preview before committing. The parser is RFC 4180 — quoted fields
 keep their commas, newlines and doubled quotes — and it reads Anki's own text
