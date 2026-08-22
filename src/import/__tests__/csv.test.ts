@@ -180,6 +180,15 @@ describe('header detection', () => {
     ).toBe(false)
   })
 
+  it('recognises a lowercase singular "tag" heading', () => {
+    expect(
+      looksLikeHeader([
+        ['Chinese', 'Pinyin', 'English', 'tag'],
+        ['\u9732', 'l\u00f2u', 'dew', '5A-Week 1'],
+      ]),
+    ).toBe(true)
+  })
+
   it('needs more than one row to decide', () => {
     expect(looksLikeHeader([['Front', 'Back']])).toBe(false)
   })

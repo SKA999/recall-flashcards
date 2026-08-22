@@ -32,6 +32,25 @@ const ANNOTATION = /^(pinyin|hanyu ?pinyin|romaji|romanisation|romanization|read
 /** Headers that name a section of the deck rather than card content. */
 const SECTION_HEADER = /^(week|month|unit|lesson|chapter|section|term|topic|set|day)\b/i
 
+/** Headers that hold tags. Singular included: spreadsheets use both. */
+const TAG_HEADER = /^tags?$/i
+
+/**
+ * A tag column whose values look like section labels - few of them, each
+ * repeated, carrying a number - is really a section. The distinction matters:
+ * a tags cell splits into several tags, while a section cell is kept whole.
+ * "5A-Week 1" split would give the useless pair "5A-Week" and "1", which is
+ * exactly what Anki does to a tag containing a space.
+ */
+function looksLikeSectionColumn(values: string[]): boolean {
+  const present = values.map((v) => v.trim()).filter(Boolean)
+  if (present.length < 4) return false
+  const distinct = new Set(present)
+  // Sections repeat: a handful of labels across many rows.
+  if (distinct.size > Math.max(3, present.length / 3)) return false
+  return [...distinct].every((v) => /\d/.test(v) && v.split(/\s+/).length <= 4)
+}
+
 const DELIMITERS = [
   { value: ',', label: 'Comma' },
   { value: '\t', label: 'Tab' },
@@ -105,7 +124,9 @@ export function CsvImport({ go }: { go: Go }) {
       const names = first.meta.columns ?? (looksLikeHeader(first.rows) ? first.rows[0] : [])
       const tagsIndex = first.meta.tagsColumn
         ? first.meta.tagsColumn - 1
-        : names.findIndex((n) => n.toLowerCase().trim() === 'tags')
+        : names.findIndex((n) => TAG_HEADER.test((n ?? '').trim()))
+      const body = looksLikeHeader(first.rows) ? first.rows.slice(1) : first.rows
+      const columnValues = (i: number) => body.map((r) => r[i] ?? '')
 
       // A bundle with media is almost always a multi-column deck, so default to
       // building a note type from the columns rather than squeezing into Basic.
@@ -121,9 +142,12 @@ export function CsvImport({ go }: { go: Go }) {
           i === tagsIndex ? TAGS : i === 0 ? QUESTION : ANSWER,
         )
         // A column named for a week or unit is a section of the deck, not
-        // something to show on a card.
+        // something to show on a card - and a tag column whose contents look
+        // like section labels is one too.
         for (let i = 0; i < width; i++) {
-          if (guess[i] !== TAGS && SECTION_HEADER.test((names[i] ?? '').trim())) guess[i] = SECTION
+          const label = (names[i] ?? '').trim()
+          if (SECTION_HEADER.test(label)) guess[i] = SECTION
+          else if (guess[i] === TAGS && looksLikeSectionColumn(columnValues(i))) guess[i] = SECTION
         }
         // An annotation follows the column it annotates: Pinyin sits with the
         // Chinese, not on the back by default.
@@ -392,7 +416,7 @@ export function CsvImport({ go }: { go: Go }) {
             ref={fileRef}
             type="file"
             multiple
-            accept=".csv,.tsv,.txt,.zip,audio/*,image/*,video/*,text/csv,text/plain,application/zip"
+            accept=".csv,.tsv,.txt,.zip,audio/*,image/*,video/*,text/csv,text/plain,application/zip,application/x-zip-compressed,application/octet-stream"
             style={{ display: 'none' }}
             onChange={(e) => {
               const files = [...(e.target.files ?? [])]

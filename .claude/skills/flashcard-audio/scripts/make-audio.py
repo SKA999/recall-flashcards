@@ -36,6 +36,13 @@ CJK = re.compile(r'[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uac00-\ud7af\uf900-\
 # Anything shorter than this is silence, not speech.
 MIN_SPEECH_SECONDS = 0.15
 
+# `say` occasionally wedges - the speech daemon stops responding and the process
+# never exits. One phrase should take well under a second, so anything past this
+# is a hang, not slow work. Without a bound, a single wedge stalls a batch of
+# hundreds forever.
+SAY_TIMEOUT_SECONDS = 20
+SAY_ATTEMPTS = 3
+
 # Preferred voice per language, first one installed wins.
 DEFAULT_VOICES = {
     'zh': ['Tingting', 'Meijia', 'Sinji'],
@@ -92,10 +99,26 @@ def speak(text: str, voice: str, rate: int, path: str, fmt: str) -> float:
         command = ['say', '-v', voice, '-o', raw]
         if rate:
             command += ['-r', str(rate)]
-        # The text goes on stdin so punctuation is never read as an argument.
-        result = subprocess.run(command + ['--', text], capture_output=True, text=True)
-        if result.returncode != 0:
-            die(f'say failed for {text!r}: {result.stderr.strip()}')
+        # `--` keeps text starting with a dash from being read as an option.
+        command += ['--', text]
+
+        for attempt in range(1, SAY_ATTEMPTS + 1):
+            try:
+                result = subprocess.run(command, capture_output=True, text=True,
+                                        timeout=SAY_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                # The child is killed by the timeout; the daemon usually
+                # recovers on its own, so try again before giving up.
+                print(f'    (say hung on {text!r}, retrying {attempt}/{SAY_ATTEMPTS})',
+                      flush=True)
+                continue
+            if result.returncode != 0:
+                die(f'say failed for {text!r}: {result.stderr.strip()}')
+            break
+        else:
+            die(f'say hung on {text!r} {SAY_ATTEMPTS} times running.\n'
+                f'       The speech daemon may be wedged: try `killall speechsynthesisd` '
+                f'and run again. Clips already written are kept, so it resumes where it stopped.')
 
         if fmt == 'm4a':
             encode = ['afconvert', '-f', 'm4af', '-d', 'aac', '-b', '64000', raw, path]
@@ -133,6 +156,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('csv', help='the deck table to fill in')
+    parser.add_argument('--speak', action='append', default=[], metavar='COLUMN[=VOICE]',
+                        help='speak this column, adding its audio column if the table has '
+                             'none. e.g. --speak Chinese --speak "English=Samantha". Repeatable.')
     parser.add_argument('--voice', action='append', default=[], metavar='COLUMN=VOICE',
                         help='voice for a source column, e.g. "Chinese=Tingting". Repeatable.')
     parser.add_argument('--rate', type=int, default=0,
@@ -165,6 +191,26 @@ def main() -> None:
 
     header = rows[0]
     lookup = {name.strip().lower(): i for i, name in enumerate(header)}
+
+    # --speak names a source column; add its audio column when the table has
+    # none, so a plain word list needs no editing before it can be recorded.
+    for spec in args.speak:
+        column, _, voice = spec.partition('=')
+        column = column.strip()
+        key = column.lower()
+        if key not in lookup:
+            die(f'no column called {column!r}. The table has: {", ".join(header)}')
+        if voice:
+            if voice not in voices:
+                die(f'no voice called {voice!r}. Run: say -v \'?\'')
+            voice_for[key] = voice
+        audio_column = f'{column} audio'
+        if audio_column.lower() not in lookup:
+            lookup[audio_column.lower()] = len(header)
+            header.append(audio_column)
+            for row in rows[1:]:
+                row += [''] * (len(header) - len(row))
+            print(f'  added column "{audio_column}"', flush=True)
 
     # Pair every "<X> audio" column with its source column "<X>".
     pairs = []
@@ -204,7 +250,8 @@ def main() -> None:
         pairs.append((source_i, i, voice))
 
     if not pairs:
-        die('no "<column> audio" columns found. See examples/import-template.csv')
+        die('nothing to speak. Either add "<column> audio" columns to the table, '
+            'or say which columns to record: --speak Chinese --speak English')
 
     out_dir = args.out or os.path.dirname(os.path.abspath(args.csv))
     audio_dir = os.path.join(out_dir, args.audio_dir)
@@ -227,7 +274,7 @@ def main() -> None:
             if os.path.exists(path):
                 reused += 1
             else:
-                print(f'  {voice:<10} {text}')
+                print(f'  [{made + 1}] {voice:<10} {text}', flush=True)
                 speak(text, voice, args.rate, path, args.format)
                 made += 1
             row[audio_i] = f'{args.audio_dir}/{name}'

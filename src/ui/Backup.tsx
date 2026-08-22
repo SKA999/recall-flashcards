@@ -114,7 +114,7 @@ export function Backup({ go }: { go: Go }) {
           <input
             ref={fileRef}
             type="file"
-            accept=".zip,application/zip"
+            accept=".zip,application/zip,application/x-zip-compressed,application/octet-stream"
             style={{ display: 'none' }}
             onChange={(e) => {
               const file = e.target.files?.[0]

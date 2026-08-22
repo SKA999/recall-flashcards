@@ -10,38 +10,60 @@ work is: pick a voice that can actually read the text, synthesise once per
 distinct phrase, and hand the result to the importer as files with a table that
 names them.
 
-## Start here
+## The routine
 
-If the deck is a CSV with a column per side, `scripts/make-audio.py` does the
-whole job:
+Someone hands you a word list and wants a deck they can import. One command:
+
+```bash
+python3 scripts/make-audio.py cards.csv --speak Chinese --speak English \
+  --rate 150 --zip deck.zip
+```
+
+`--speak` names a column to record. If the table has no `<X> audio` column the
+script adds one, so a plain word list needs no editing first — this is the
+normal case, because people export a spreadsheet of vocabulary, not a spreadsheet
+with blanks left for sound.
+
+That handles a table like this, which is what a real one looks like:
+
+```csv
+Chinese,Pinyin,English,tag
+露,lòu,dew,5A-Week 1
+营,yíng,camp,5A-Week 1
+```
+
+and leaves `deck.zip` ready to import, with the table now naming its clips.
+
+`--rate 150` slows delivery to roughly 150 words per minute. Worth doing for
+beginners and for children; the default rate clips isolated words short.
+
+A table that already has `<X> audio` columns needs no `--speak` at all — the
+pairs are found by name:
 
 ```bash
 python3 scripts/make-audio.py cards.csv --zip deck.zip
 ```
 
-For every column named `<X> audio` it speaks column `<X>`, writes the clip, and
-fills the cell with the filename. It picks a voice matching the script it finds
-in each column, skips cells already filled, and shares one file between rows
-with identical text.
-
-Override a voice when the default isn't the one you want:
+Override a voice when the automatic choice isn't the one you want:
 
 ```bash
 python3 scripts/make-audio.py cards.csv \
-  --voice "Chinese=Tingting" --voice "English=Samantha" \
-  --rate 150 --zip deck.zip
+  --speak "Chinese=Tingting" --speak "English=Samantha" --zip deck.zip
 ```
 
-`--rate 150` slows delivery to roughly 150 words per minute, which is worth
-doing for beginners and for young learners.
+### Before you run it on a big list
 
-The table it expects looks like this — audio columns left blank for the script
-to fill:
+Try three rows first. Recording 500 clips takes minutes, and a wrong voice or
+rate is much cheaper to discover on three:
 
-```csv
-Chinese,Pinyin,English,Chinese audio,English audio,Week
-学校,xuéxiào,school,,,Week 1
+```bash
+head -4 cards.csv > /tmp/sample.csv
+python3 scripts/make-audio.py /tmp/sample.csv --speak Chinese --speak English
+afplay /tmp/audio/*.m4a          # listen to what you are about to commit to
 ```
+
+Then run the whole file. Clips already on disk are reused, so nothing is
+recorded twice.
 
 ## The failure that matters: silent files
 
@@ -130,6 +152,20 @@ duplicating them.
 `m4a` is the default: it needs only `afconvert`, which ships with macOS, and it
 is well supported everywhere. `--format mp3` needs `ffmpeg` installed and is
 worth it only when something downstream insists on MP3.
+
+## Sections: keeping a label in one piece
+
+A column of week or unit labels — `5A-Week 1`, `Unit 3` — becomes a section of
+the deck, which the app offers as a filter so one week can be studied on its
+own. The thing to get right is that the label must stay **one tag**. Split on
+the space it becomes `5A-Week` and `1`, neither of which means anything: the
+first lands on every card, the second is a bare number. This is not
+hypothetical — it is what Anki does to a tag containing a space, and real decks
+arrive damaged this way.
+
+The importer keeps a section cell whole. Nothing is needed from this script, but
+when advising on the shape of a table: one column, one label per row, repeated
+across the rows belonging to that week.
 
 ## Working with an existing deck
 
