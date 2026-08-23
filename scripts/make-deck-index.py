@@ -38,8 +38,28 @@ def describe(path):
 
 
 def grade_of(filename):
-    match = re.match(r'(\d+)', filename)
+    """Sort key: numbered grades first, in order, then anything else."""
+    match = re.match(r'(\d+)AnB', filename)
     return int(match.group(1)) if match else 99
+
+
+def title_of(filename):
+    """A heading for a bundle. Grade decks get a proper name; anything else
+    keeps the name it was given rather than being second-guessed."""
+    match = re.match(r'(\d+)AnB', filename)
+    if match:
+        return f'Primary {match.group(1)}'
+    stem = re.sub(r'(-deck)?\.zip$', '', filename)
+    return stem.replace('-', ' ')
+
+
+def sections_line(sections):
+    """List the sections, or give the range when there are too many to list."""
+    if not sections:
+        return ''
+    if len(sections) > 6:
+        return f'{sections[0]} – {sections[-1]}'
+    return ', '.join(sections)
 
 
 def main():
@@ -53,13 +73,12 @@ def main():
     cards = []
     for name in files:
         info = describe(os.path.join(DECKS, name))
-        grade = grade_of(name)
-        weeks = len(info['sections'])
+        count = len(info['sections'])
         cards.append(f'''      <li class="deck">
         <div class="grow">
-          <h2>Primary {grade}</h2>
-          <p class="meta">{info['cards']} characters · {info['clips']} recordings · {weeks} weeks</p>
-          <p class="range">{html.escape(info['sections'][0])} – {html.escape(info['sections'][-1])}</p>
+          <h2>{html.escape(title_of(name))}</h2>
+          <p class="meta">{info['cards']} cards · {info['clips']} recordings · {count} section{'' if count == 1 else 's'}</p>
+          <p class="range">{html.escape(sections_line(info['sections']))}</p>
         </div>
         <a class="get" href="./{html.escape(name)}" download>
           Download<span>{info['bytes'] // 1024 // 1024}.{(info['bytes'] // 1024 % 1024) * 10 // 1024} MB</span>
@@ -123,7 +142,7 @@ def main():
 <body>
   <div class="wrap">
     <h1>Chinese decks</h1>
-    <p class="lede">Character, pinyin and meaning, with Mandarin and English audio on every card. Grouped by week.</p>
+    <p class="lede">Chinese, pinyin and meaning, with Mandarin and English audio on every card. Grouped into sections you can study one at a time.</p>
     <ul>
 {chr(10).join(cards)}
     </ul>
@@ -134,7 +153,7 @@ def main():
         <li>Open <a href="../">the app</a> and add it to your home screen.</li>
         <li>Download a deck above — it saves to Files or Downloads.</li>
         <li>In the app: <strong>Import</strong> → <strong>Choose files</strong> → pick the zip.</li>
-        <li>Tap a week to study just that week.</li>
+        <li>Tap a section to study just that part.</li>
       </ol>
     </div>
 
