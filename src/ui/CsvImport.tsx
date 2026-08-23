@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react'
 import type { Go } from '../App'
 import { newId } from '../core/ids'
 import { plainText, toTag } from '../core/notes'
+import { looksLikeSectionColumn } from '../core/sections'
 import type { Notetype } from '../core/types'
 import { cellMediaNames, convertCell, mediaIndex, readBundle } from '../import/bundle'
 import type { Bundle } from '../import/bundle'
@@ -35,21 +36,7 @@ const SECTION_HEADER = /^(week|month|unit|lesson|chapter|section|term|topic|set|
 /** Headers that hold tags. Singular included: spreadsheets use both. */
 const TAG_HEADER = /^tags?$/i
 
-/**
- * A tag column whose values look like section labels - few of them, each
- * repeated, carrying a number - is really a section. The distinction matters:
- * a tags cell splits into several tags, while a section cell is kept whole.
- * "5A-Week 1" split would give the useless pair "5A-Week" and "1", which is
- * exactly what Anki does to a tag containing a space.
- */
-function looksLikeSectionColumn(values: string[]): boolean {
-  const present = values.map((v) => v.trim()).filter(Boolean)
-  if (present.length < 4) return false
-  const distinct = new Set(present)
-  // Sections repeat: a handful of labels across many rows.
-  if (distinct.size > Math.max(3, present.length / 3)) return false
-  return [...distinct].every((v) => /\d/.test(v) && v.split(/\s+/).length <= 4)
-}
+
 
 const DELIMITERS = [
   { value: ',', label: 'Comma' },
