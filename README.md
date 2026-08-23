@@ -167,6 +167,16 @@ so an imported deck can't inject markup.
 
 Not built yet: `.apkg` import, cloze deletion, sync.
 
+## For maintainers
+
+- `CLAUDE.md` — the short version, loaded automatically at the start of a
+  session: the architectural rule, the decisions most easily broken by accident,
+  and the traps that have already bitten.
+- `docs/state.md` — what works, what is half built, what is next, and what has
+  not been verified.
+- `docs/decisions.md` — why each odd-looking choice was made and what it rules
+  out.
+
 ## Layout
 
 ```
