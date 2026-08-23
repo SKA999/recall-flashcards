@@ -149,6 +149,10 @@ so an imported deck can't inject markup.
   on both sides: on the question for listening cards, on the answer on reveal.
   A file whose type the picker leaves blank is identified by its extension, so
   `.opus`, `.flac`, `.m4a` and friends still get a player.
+- **Playback speed** — 0.5× to 1.5×, offered on any card that makes a sound and
+  remembered across decks and sessions. Pitch is preserved, which matters for a
+  tone language: slowing audio without it drops the pitch and changes the thing
+  being learned.
 - **Review** — learning steps, FSRS intervals, four-button grading with the real
   next interval shown on each button, keyboard shortcuts (space reveals, 1–4
   grade, z undoes), daily new/review limits, study-ahead when the queue drains.

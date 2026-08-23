@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { Go } from '../App'
 import { faces, firstFieldWithMedia, hasTag } from '../core/notes'
+import { PLAYBACK_SPEEDS, formatRate } from '../core/playback'
 import { buildQueue, previewIntervals } from '../core/scheduler'
 import { Rating } from '../core/types'
 import type { Card } from '../core/types'
@@ -18,7 +19,18 @@ const RATINGS: { rating: Rating; label: string; key: string }[] = [
 const STUDY_AHEAD_MS = 20 * 60_000
 
 export function Review({ deckId, tag, go }: { deckId: string; tag?: string; go: Go }) {
-  const { decks, notes, cards, counterFor, answerCard, undoAnswer, canUndo, notetype } = useApp()
+  const {
+    decks,
+    notes,
+    cards,
+    counterFor,
+    answerCard,
+    undoAnswer,
+    canUndo,
+    notetype,
+    playbackRate,
+    setPlaybackRate,
+  } = useApp()
   const deck = decks.find((d) => d.id === deckId)
 
   const [revealed, setRevealed] = useState(false)
@@ -245,6 +257,21 @@ export function Review({ deckId, tag, go }: { deckId: string; tag?: string; go: 
           <button className="btn primary" style={{ padding: 14 }} onClick={() => setRevealed(true)}>
             Show answer
           </button>
+        )}
+        {/* Only worth showing on a card that actually makes a sound. */}
+        {(questionSound >= 0 || answerSound >= 0) && (
+          <div className="row speeds" style={{ justifyContent: 'center', marginTop: 12 }}>
+            <span className="tiny muted label">Speed</span>
+            {PLAYBACK_SPEEDS.map((speed) => (
+              <button
+                key={speed}
+                className={`chip ${speed === playbackRate ? 'on' : ''}`}
+                onClick={() => void setPlaybackRate(speed)}
+              >
+                {formatRate(speed)}
+              </button>
+            ))}
+          </div>
         )}
         <div className="tiny muted" style={{ textAlign: 'center', marginTop: 10 }}>
           Space reveals · 1–4 rate · z undoes

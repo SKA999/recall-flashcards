@@ -27,6 +27,7 @@ import type {
   ReviewLog,
 } from '../core/types'
 import { backupDue } from '../core/backup-policy'
+import { DEFAULT_PLAYBACK_RATE, normaliseRate } from '../core/playback'
 import type { BackupState } from '../core/backup-policy'
 import {
   folderIsWritable,
@@ -104,6 +105,9 @@ interface AppApi extends Collection {
   exportBackup(): Promise<ExportResult>
   /** Merge a backup in, leaving existing records untouched. */
   restoreBackup(buffer: ArrayBuffer): Promise<RestoreResult>
+  /** Speed all card audio plays at. Shared across decks; it is a preference. */
+  playbackRate: number
+  setPlaybackRate(rate: number): Promise<void>
   /** How overdue a copy is, for the reminder and the backup screen. */
   backupState: BackupState
   /** Note that a copy was just taken, however it was taken. */
@@ -120,6 +124,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [backupMarks, setBackupMarks] = useState<{ lastBackupAt?: number; reviewsAtBackup: number }>(
     { reviewsAtBackup: 0 },
   )
+  const [playbackRate, setRate] = useState(DEFAULT_PLAYBACK_RATE)
   const stateRef = useRefLike(state)
   const [undoStack, setUndoStack] = useState<UndoEntry[]>([])
   const undoRef = useRefLike(undoStack)
@@ -148,6 +153,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       setState({ decks, notetypes: [...notetypes, ...missing], notes, cards, logs, counters: {} })
       setDurable(isDurable())
       setBackupMarks(await readBackupMarks(backend()))
+      setRate(normaliseRate(await backend().getSetting<number>('playback.rate')))
       setLoading(false)
     })()
     return () => {
@@ -429,6 +435,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return result
   }, [])
 
+  const setPlaybackRate = useCallback(async (rate: number) => {
+    const clean = normaliseRate(rate)
+    setRate(clean)
+    await backend().putSetting('playback.rate', clean)
+  }, [])
+
   const markBackedUp = useCallback(async (at = Date.now()) => {
     const reviews = stateRef.current.logs.length
     await recordBackup(backend(), at, reviews)
@@ -534,6 +546,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addMedia,
       exportBackup,
       restoreBackup,
+      playbackRate,
+      setPlaybackRate,
       backupState,
       markBackedUp,
       counterFor,
@@ -559,6 +573,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       addMedia,
       exportBackup,
       restoreBackup,
+      playbackRate,
+      setPlaybackRate,
       backupState,
       markBackedUp,
       counterFor,

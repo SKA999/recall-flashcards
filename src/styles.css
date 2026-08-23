@@ -279,6 +279,18 @@ textarea { resize: vertical; min-height: 84px; font-family: inherit; }
 .chip.on { border-color: var(--accent); color: var(--accent); }
 .chip.on span { color: var(--accent); }
 
+/* Speed control: small enough not to compete with the answer buttons. */
+.speeds { flex-wrap: wrap; gap: 6px; }
+.speeds .chip { padding: 4px 9px; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+@media (max-width: 400px) {
+  /* On the narrowest phones the row wraps and strands one speed on its own.
+     The multiplier sign already says what these are, so the label goes. */
+  .speeds .label { display: none; }
+  .speeds { gap: 4px; }
+  .speeds .chip { padding: 4px 7px; }
+}
+
 .empty { padding: 48px 20px; text-align: center; color: var(--muted); }
 
 .notice {
